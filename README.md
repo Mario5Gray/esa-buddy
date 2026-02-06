@@ -6,6 +6,114 @@
 
 **ESA** is an AI-powered command-line tool that lets you create powerful personalized small agents. By connecting Large Language Models (LLMs) with shell scripts as functions, ESA lets you control your system, automate tasks, and query information using plain English commands.
 
+---
+
+## 🍴 About This Fork
+
+This fork plans to **socialize** ESA by transforming it from a powerful personal tool into a community-driven ecosystem. Today, ESA's strength lies in its extensible agent system—but discovering, sharing, and building upon other people's agents requires manual copying of TOML files and word-of-mouth sharing. This fork introduces a **Hub** architecture that lets users publish, discover, and install agents with a single command, turning isolated personal workflows into a collective library of automation.
+
+The vision: when someone solves a problem with an ESA agent—whether it's managing Kubernetes clusters, automating JIRA workflows, or generating git commits—that solution becomes instantly available to everyone. Agents can inherit from and extend other agents, creating composable building blocks. The community benefits compound as each new agent builds on what came before.
+
+### What's New for Users
+
+| Feature | What It Does |
+|---------|--------------|
+| **Agent Hub** | Discover and install community agents instantly |
+| **One-Command Install** | Get new capabilities without manual config |
+| **Agent Inheritance** | Build specialized agents that extend existing ones |
+| **Publishing** | Share your agents with the community |
+| **Version Pinning** | Lock agents to specific versions for reproducibility |
+| **Token Tracking** | Monitor your LLM usage and estimate costs |
+
+### New Commands
+
+**Hub operations via the `+hub` agent:**
+
+```bash
+# Discover agents
+esa +hub search "kubernetes"
+esa +hub search "jira" --tag devops
+
+# Browse what's available
+esa +hub browse
+esa +hub browse --category automation
+
+# Install an agent
+esa +hub install devops/k8s-advanced
+esa +hub install devops/k8s-advanced@v1.2.0
+
+# Update installed agents
+esa +hub update
+esa +hub update k8s-advanced
+
+# Publish your own
+esa +hub publish ~/.config/esa/agents/my-agent.toml
+```
+
+**Direct CLI flags (alternative syntax):**
+
+```bash
+# Install and manage without invoking an agent
+esa --hub-search "git workflow"
+esa --hub-install user/agent-name
+esa --hub-list                    # List installed hub agents
+esa --hub-update agent-name
+```
+
+**Token tracking:**
+
+```bash
+# View token usage in stats
+esa --show-stats
+
+# Example output includes:
+#   Total tokens: 45,230 (input: 38,102 / output: 7,128)
+#   Estimated cost: $0.47 (based on openai/gpt-4o-mini)
+```
+
+### Hub Architecture (Preview)
+
+The Hub is designed with flexibility in mind—the backend is abstracted so it can be powered by different storage implementations:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    ESA Client                        │
+│   (search, install, publish, update)                │
+└─────────────────┬───────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────┐
+│               Hub Client Interface                   │
+│   (abstract operations: list, get, publish, etc.)   │
+└─────────────────┬───────────────────────────────────┘
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+┌───────────────┐   ┌───────────────┐
+│  GitHub Hub   │   │   BYO Hub     │
+│  (default)    │   │ (S3, FS, etc) │
+└───────────────┘   └───────────────┘
+```
+
+The architecture supports:
+- **Public hubs** for community sharing
+- **Private hubs** for teams and organizations
+- **Local hubs** for offline or air-gapped environments
+
+Agent manifests include metadata for discovery (tags, description, author) and integrity (checksums, signatures). Inheritance relationships are tracked so dependencies can be resolved automatically.
+
+> **Note:** Hub architecture is under active development and interfaces may change. See [TODO.md](./TODO.md) for the current roadmap.
+
+### Creature Comforts
+
+Beyond the Hub, this fork includes quality-of-life improvements:
+
+- **Token Tracking**: See exactly how many tokens each conversation uses
+- **Cost Estimates**: Approximate spend per model/provider
+- **Enhanced Stats**: Richer `--show-stats` output with usage breakdowns
+
+---
+
 ## ✨ Features
 
 - **Natural Language Interface**: Execute system commands using conversational language
