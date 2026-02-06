@@ -1,0 +1,81 @@
+# ESA Roadmap
+
+## Phase 1: Foundation
+
+### 1. Token Tracking
+- [x] Track input/output tokens per request
+- [x] Display token usage in `--show-stats`
+- [ ] Optional: estimate costs per provider/model
+
+### 2. Agent Inheritance
+- [ ] Define `extends` field in agent TOML
+- [ ] Implement function merging (child overrides parent)
+- [ ] Implement system prompt composition
+- [ ] Decide: flatten at load time vs dynamic resolution
+
+### 3. Agent Versioning
+- [ ] Define version field in agent TOML
+- [ ] Version format: semver (`1.0.0`)
+- [ ] Support version pinning syntax (`agent@v1.2`)
+
+## Phase 2: Hub Architecture
+
+### 4. Client Interface Design
+- [ ] Define hub client interface (Go interface)
+- [ ] Operations: search, list, get, publish, versions
+- [ ] Agent metadata schema (author, tags, dependencies, checksum)
+
+### 5. Hub Abstractions
+- [ ] Abstract storage backend interface
+- [ ] Abstract registry/index interface
+- [ ] Define agent manifest format
+
+### 6. Test Hub Implementation
+- [ ] In-memory or filesystem-based test hub
+- [ ] Implement all client interface operations
+- [ ] Seed with sample agents
+
+## Phase 3: Client & Testing
+
+### 7. Hub Client Implementation
+- [ ] Implement client against hub interface
+- [ ] Agent download and installation to `~/.config/esa/agents/`
+- [ ] Dependency resolution for inherited agents
+- [ ] Cache management
+
+### 8. Client Testing
+- [ ] Unit tests against test hub
+- [ ] Mock various failure scenarios
+- [ ] Version resolution tests
+
+### 9. E2E Testing
+- [ ] Deploy test hub
+- [ ] Test agent discovery and installation
+- [ ] Test agent updates and version changes
+- [ ] Test client reactions to hub mutations
+
+## Phase 4: Production
+
+### 10. CLI Interfaces
+- [ ] `esa +hub search <query>`
+- [ ] `esa +hub install <agent>[@version]`
+- [ ] `esa +hub publish <path>`
+- [ ] `esa +hub list` (installed from hub)
+- [ ] `esa +hub update [agent]`
+
+### 11. Production Hub Selection
+- [ ] Evaluate options: GitHub, S3, custom server, BYO
+- [ ] Consider hybrid: GitHub for discovery, object store for files
+- [ ] Implement chosen backend(s)
+
+## Considerations
+
+### Security
+- [ ] Agent signing / verification
+- [ ] Trusted publisher registry
+- [ ] Checksum verification on install
+
+### Future
+- [ ] Agent ratings / popularity metrics
+- [ ] Private hubs for teams/orgs
+- [ ] Agent dependency graph visualization

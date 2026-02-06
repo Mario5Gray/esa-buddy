@@ -45,6 +45,7 @@ type StatsCollector struct {
 	agentStats         map[string]AgentStats
 	modelStats         map[string]ModelStats
 	totalConversations int
+	totalTokens        int // sum of all tracked tokens across conversations
 }
 
 // NewStatsCollector creates a new statistics collector
@@ -74,20 +75,28 @@ func (sc *StatsCollector) ProcessHistoryFile(filePath string, fileName string, f
 	dateKey := fileModTime.Format("2006-01-02")
 	hourKey := fileModTime.Hour()
 
+	// Extract token count (zero if history predates token tracking)
+	tokens := 0
+	if history.Usage != nil {
+		tokens = history.Usage.TotalTokens
+	}
+
 	// Update statistics
-	sc.updateDayStats(dateKey)
+	sc.updateDayStats(dateKey, tokens)
 	sc.updateHourStats(hourKey)
-	sc.updateAgentStats(history.AgentPath)
-	sc.updateModelStats(history.Model)
+	sc.updateAgentStats(history.AgentPath, tokens)
+	sc.updateModelStats(history.Model, tokens)
 	sc.totalConversations++
+	sc.totalTokens += tokens
 
 	return nil
 }
 
 // updateDayStats updates daily usage statistics
-func (sc *StatsCollector) updateDayStats(dateKey string) {
+func (sc *StatsCollector) updateDayStats(dateKey string, tokens int) {
 	dayStat := sc.dayStats[dateKey]
 	dayStat.Count++
+	dayStat.Tokens += tokens
 	sc.dayStats[dateKey] = dayStat
 }
 
@@ -99,7 +108,7 @@ func (sc *StatsCollector) updateHourStats(hourKey int) {
 }
 
 // updateAgentStats updates agent usage statistics
-func (sc *StatsCollector) updateAgentStats(agentPath string) {
+func (sc *StatsCollector) updateAgentStats(agentPath string, tokens int) {
 	if agentPath == "" {
 		return
 	}
@@ -114,17 +123,19 @@ func (sc *StatsCollector) updateAgentStats(agentPath string) {
 
 	agentStat := sc.agentStats[agentName]
 	agentStat.Count++
+	agentStat.Tokens += tokens
 	sc.agentStats[agentName] = agentStat
 }
 
 // updateModelStats updates model usage statistics
-func (sc *StatsCollector) updateModelStats(model string) {
+func (sc *StatsCollector) updateModelStats(model string, tokens int) {
 	if model == "" {
 		return
 	}
 
 	modelStat := sc.modelStats[model]
 	modelStat.Count++
+	modelStat.Tokens += tokens
 	sc.modelStats[model] = modelStat
 }
 
@@ -134,7 +145,11 @@ func (sc *StatsCollector) PrintStatistics(showAll bool) {
 	sectionStyle := color.New(color.FgCyan, color.Bold).SprintFunc()
 
 	fmt.Println(headerStyle("Usage Statistics"))
-	fmt.Printf("Total conversations: %d\n\n", sc.totalConversations)
+	fmt.Printf("Total conversations: %d\n", sc.totalConversations)
+	if sc.totalTokens > 0 {
+		fmt.Printf("Total tokens: %s\n", formatTokenCount(sc.totalTokens))
+	}
+	fmt.Println()
 
 	sc.printDailyStats(sectionStyle, showAll)
 	sc.printHourlyStats(sectionStyle, showAll)
@@ -166,8 +181,12 @@ func (sc *StatsCollector) printDailyStats(sectionStyle func(a ...interface{}) st
 		lastDays = lastDays[:7]
 	}
 
-	for _, usage := range lastDays {
-		fmt.Printf("  %s: %d conversations\n", usage.date, usage.count)
+	for _, u := range lastDays {
+		if tokens := sc.dayStats[u.date].Tokens; tokens > 0 {
+			fmt.Printf("  %s: %d conversations (%s tokens)\n", u.date, u.count, formatTokenCount(tokens))
+		} else {
+			fmt.Printf("  %s: %d conversations\n", u.date, u.count)
+		}
 	}
 	fmt.Println()
 }
@@ -226,8 +245,12 @@ func (sc *StatsCollector) printAgentStats(sectionStyle func(a ...interface{}) st
 		topAgents = topAgents[:10]
 	}
 
-	for _, usage := range topAgents {
-		fmt.Printf("  +%s: %d conversations\n", usage.name, usage.count)
+	for _, u := range topAgents {
+		if tokens := sc.agentStats[u.name].Tokens; tokens > 0 {
+			fmt.Printf("  +%s: %d conversations (%s tokens)\n", u.name, u.count, formatTokenCount(tokens))
+		} else {
+			fmt.Printf("  +%s: %d conversations\n", u.name, u.count)
+		}
 	}
 	fmt.Println()
 }
@@ -256,7 +279,30 @@ func (sc *StatsCollector) printModelStats(sectionStyle func(a ...interface{}) st
 		topModels = topModels[:10]
 	}
 
-	for _, usage := range topModels {
-		fmt.Printf("  %s: %d conversations\n", usage.name, usage.count)
+	for _, u := range topModels {
+		if tokens := sc.modelStats[u.name].Tokens; tokens > 0 {
+			fmt.Printf("  %s: %d conversations (%s tokens)\n", u.name, u.count, formatTokenCount(tokens))
+		} else {
+			fmt.Printf("  %s: %d conversations\n", u.name, u.count)
+		}
 	}
+}
+
+// formatTokenCount renders a token count with comma separators for readability.
+// e.g. 45230 → "45,230"
+func formatTokenCount(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+
+	// Insert commas from the right
+	var result strings.Builder
+	for i, ch := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result.WriteByte(',')
+		}
+		result.WriteRune(ch)
+	}
+	return result.String()
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/meain/esa/internal/token"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -41,6 +42,7 @@ type Application struct {
 	debug           bool
 	historyFile     string
 	messages        []openai.ChatCompletionMessage
+	usage           token.Usage // accumulated token counts across LLM calls
 	debugPrint      func(section string, v ...any)
 	showCommands    bool
 	showToolCalls   bool
@@ -89,9 +91,10 @@ func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*ope
 		stream, err = app.client.CreateChatCompletionStream(
 			context.Background(),
 			openai.ChatCompletionRequest{
-				Model:    app.getModel(),
-				Messages: app.messages,
-				Tools:    tools,
+				Model:         app.getModel(),
+				Messages:      app.messages,
+				Tools:         tools,
+				StreamOptions: &openai.StreamOptions{IncludeUsage: true},
 			})
 
 		if err == nil {
@@ -133,6 +136,7 @@ func NewApplication(opts *CLIOptions) (*Application, error) {
 
 	var (
 		messages []openai.ChatCompletionMessage
+		usage    token.Usage
 	)
 
 	// If conversation index is set without retry, also set continue chat
@@ -162,6 +166,11 @@ func NewApplication(opts *CLIOptions) (*Application, error) {
 
 		allMessages := history.Messages
 		agentPath := history.AgentPath
+
+		// Carry forward token counts from prior turns in this conversation
+		if history.Usage != nil {
+			usage = *history.Usage
+		}
 
 		app := &Application{debug: opts.DebugMode}
 		app.debugPrint = createDebugPrinter(app.debug)
@@ -263,6 +272,7 @@ func NewApplication(opts *CLIOptions) (*Application, error) {
 		client:       client,
 		historyFile:  historyFile,
 		messages:     messages,
+		usage:        usage,
 		modelFlag:    opts.Model,
 		config:       config,
 		mcpManager:   mcpManager,
@@ -439,6 +449,12 @@ func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream
 			log.Fatalf("Stream error: %v", err)
 		}
 
+		// The final stream chunk carries token usage for the entire request.
+		// Earlier chunks have Usage: nil; only the last one is populated.
+		if response.Usage != nil {
+			app.usage.Add(response.Usage.PromptTokens, response.Usage.CompletionTokens)
+		}
+
 		if len(response.Choices) == 0 {
 			continue
 		}
@@ -490,15 +506,26 @@ type ConversationHistory struct {
 	AgentPath string                         `json:"agent_path"`
 	Model     string                         `json:"model"`
 	Messages  []openai.ChatCompletionMessage `json:"messages"`
+	Usage     *token.Usage                   `json:"usage,omitempty"` // nil in history files from before token tracking
 }
 
 func (app *Application) saveConversationHistory() {
 	provider, model, _ := app.parseModel()
 	modelString := fmt.Sprintf("%s/%s", provider, model)
+
+	// Snapshot current usage for persistence. Pointer is nil-safe:
+	// if no tokens tracked yet, omit from JSON for clean output.
+	var usagePtr *token.Usage
+	if !app.usage.Empty() {
+		u := app.usage
+		usagePtr = &u
+	}
+
 	history := ConversationHistory{
 		AgentPath: app.agentPath,
 		Model:     modelString,
 		Messages:  app.messages,
+		Usage:     usagePtr,
 	}
 
 	if data, err := json.Marshal(history); err == nil {
