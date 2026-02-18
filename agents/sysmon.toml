@@ -1,0 +1,45 @@
+name = "System Monitor"
+description = "System resource monitoring and information"
+
+system_prompt = """
+You are a system monitoring assistant. Provide information about
+system resources, processes, and performance metrics.
+
+Present information in a clear, organized format.
+"""
+
+[[functions]]
+name = "cpu_usage"
+description = "Show CPU usage information"
+command = "top -l 1 | grep 'CPU usage'"
+safe = true
+
+[[functions]]
+name = "memory_usage"
+description = "Show memory usage statistics"
+command = "vm_stat"
+safe = true
+
+[[functions]]
+name = "disk_usage"
+description = "Show disk space usage"
+command = "df -h {{path}}"
+safe = true
+
+[[functions.parameters]]
+name = "path"
+type = "string"
+description = "Path to check (defaults to root filesystem)"
+required = false
+
+[[functions]]
+name = "list_processes"
+description = "List running processes"
+command = "ps aux | head -{{lines}}"
+safe = true
+
+[[functions.parameters]]
+name = "lines"
+type = "number"
+description = "Number of processes to show"
+required = false

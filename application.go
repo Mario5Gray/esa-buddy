@@ -17,7 +17,7 @@ import (
 
 const (
 	historyTimeFormat    = "20060102-150405"
-	defaultModel         = "openai/gpt-4o-mini"
+	defaultModel         = "openai/gpt-5.2-2025-12-11"
 	toolCallCommandColor = color.FgCyan
 	toolCallOutputColor  = color.FgWhite
 	maxRetryCount        = 5
