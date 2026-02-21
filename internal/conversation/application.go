@@ -16,6 +16,7 @@ import (
 	"github.com/meain/esa/internal/executor"
 	"github.com/meain/esa/internal/mcp"
 	"github.com/meain/esa/internal/options"
+	"github.com/meain/esa/internal/redaction"
 	"github.com/meain/esa/internal/security"
 	"github.com/meain/esa/internal/token"
 	"github.com/meain/esa/internal/tokenizer"
@@ -67,6 +68,8 @@ type Application struct {
 	compactMaxMsgs              int
 	compactKeepLast             int
 	compactMaxChars             int
+	compactionRedactionPolicy   string
+	compactionRedactor          redaction.Policy
 	lastModelUsed               string
 	lastCompactionTrigger       string
 	lastCompactionMsgCount      int
@@ -457,7 +460,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 
 	showCommands := opts.ShowCommands || config.Settings.ShowCommands
 	showToolCalls := opts.ShowToolCalls || config.Settings.ShowToolCalls
-	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars := normalizeCompactionSettings(config.Settings)
+	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars, compactionRedactionPolicy := normalizeCompactionSettings(config.Settings)
 	if opts.Compaction {
 		compactPrompt = true
 	}
@@ -479,24 +482,26 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 	}
 
 	app := &Application{
-		agent:           agentCfg,
-		agentPath:       opts.AgentPath,
-		client:          client,
-		clients:         map[string]*openai.Client{opts.Model: client},
-		historyFile:     historyFile,
-		messages:        messages,
-		messageMeta:     nil,
-		usage:           usage,
-		modelFlag:       opts.Model,
-		config:          config,
-		mcpManager:      mcpManager,
-		cliAskLevel:     opts.AskLevel,
-		prettyOutput:    opts.Pretty,
-		thinkEnabled:    thinkEnabled,
-		compactPrompt:   compactPrompt,
-		compactMaxMsgs:  compactMaxMsgs,
-		compactKeepLast: compactKeepLast,
-		compactMaxChars: compactMaxChars,
+		agent:                     agentCfg,
+		agentPath:                 opts.AgentPath,
+		client:                    client,
+		clients:                   map[string]*openai.Client{opts.Model: client},
+		historyFile:               historyFile,
+		messages:                  messages,
+		messageMeta:               nil,
+		usage:                     usage,
+		modelFlag:                 opts.Model,
+		config:                    config,
+		mcpManager:                mcpManager,
+		cliAskLevel:               opts.AskLevel,
+		prettyOutput:              opts.Pretty,
+		thinkEnabled:              thinkEnabled,
+		compactPrompt:             compactPrompt,
+		compactMaxMsgs:            compactMaxMsgs,
+		compactKeepLast:           compactKeepLast,
+		compactMaxChars:           compactMaxChars,
+		compactionRedactionPolicy: compactionRedactionPolicy,
+		compactionRedactor:        redaction.PolicyByName(compactionRedactionPolicy),
 		counterProvider: func() tokenizer.CounterProvider {
 			fallback := tokenizer.FallbackCounter{CharsPerToken: 4}
 			provider := tokenizer.NewMapProvider(fallback)
@@ -700,6 +705,7 @@ type CompactionMeta struct {
 	MaxMessages       int    `json:"max_messages"`
 	KeepLast          int    `json:"keep_last"`
 	MaxChars          int    `json:"max_chars"`
+	RedactionPolicy   string `json:"redaction_policy,omitempty"`
 	LastTrigger       string `json:"last_trigger,omitempty"`
 	LastMsgCount      int    `json:"last_msg_count,omitempty"`
 	LastCharCount     int    `json:"last_char_count,omitempty"`
@@ -720,10 +726,11 @@ func (app *Application) saveConversationHistory() {
 
 	messageMeta := app.ensureMessageMeta(modelString)
 	compaction := &CompactionMeta{
-		Enabled:     app.compactPrompt,
-		MaxMessages: app.compactMaxMsgs,
-		KeepLast:    app.compactKeepLast,
-		MaxChars:    app.compactMaxChars,
+		Enabled:         app.compactPrompt,
+		MaxMessages:     app.compactMaxMsgs,
+		KeepLast:        app.compactKeepLast,
+		MaxChars:        app.compactMaxChars,
+		RedactionPolicy: app.compactionRedactionPolicy,
 	}
 	if app.lastCompactionTrigger != "" {
 		compaction.LastTrigger = app.lastCompactionTrigger

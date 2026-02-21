@@ -26,7 +26,7 @@
 - [x] Avoid summarizing tool outputs verbatim; keep key results only
 - [x] Summarize with a dedicated model (configurable)
 - [x] Persist compaction metadata (message/char/token estimates) in history
-- [ ] Redaction/PII policy for summaries
+- [ ] Redaction policy for summaries (external analyzer)
 - [ ] Optional: store summary in history metadata instead of system message
 
 ### 5. Prompt Compaction Phase 2 (Project Overview)

@@ -20,6 +20,7 @@ type Settings struct {
 	CompactionMaxMessages int    `toml:"compaction_max_messages"`
 	CompactionKeepLast    int    `toml:"compaction_keep_last"`
 	CompactionMaxChars    int    `toml:"compaction_max_chars"`
+	CompactionRedaction   string `toml:"compaction_redaction_policy"`
 }
 
 // Config represents the global configuration structure

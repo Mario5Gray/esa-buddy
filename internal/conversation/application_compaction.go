@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/meain/esa/internal/config"
+	"github.com/meain/esa/internal/redaction"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -16,11 +17,15 @@ const (
 	compactionSummaryPrefix      = "Conversation summary (compacted):\n"
 )
 
-func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsgs int, keepLast int, maxChars int) {
+func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsgs int, keepLast int, maxChars int, redactionPolicy string) {
 	enabled = settings.PromptCompaction
 	maxMsgs = settings.CompactionMaxMessages
 	keepLast = settings.CompactionKeepLast
 	maxChars = settings.CompactionMaxChars
+	redactionPolicy = strings.TrimSpace(settings.CompactionRedaction)
+	if redactionPolicy == "" {
+		redactionPolicy = redaction.PolicyNone
+	}
 
 	if maxMsgs <= 0 {
 		maxMsgs = defaultCompactionMaxMessages
@@ -39,7 +44,7 @@ func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsg
 		}
 	}
 
-	return enabled, maxMsgs, keepLast, maxChars
+	return enabled, maxMsgs, keepLast, maxChars, redactionPolicy
 }
 
 func (app *Application) compactMessagesIfNeeded() error {
@@ -65,9 +70,23 @@ func (app *Application) compactMessagesIfNeeded() error {
 	}
 
 	summaryInput := buildCompactionInput(existingSummary, toSummarize)
+	if app.compactionRedactor != nil {
+		redacted, err := app.compactionRedactor.Redact(summaryInput)
+		if err != nil {
+			return err
+		}
+		summaryInput = redacted
+	}
 	summary, err := app.summarizeConversation(summaryInput)
 	if err != nil {
 		return err
+	}
+	if app.compactionRedactor != nil {
+		redacted, err := app.compactionRedactor.Redact(summary)
+		if err != nil {
+			return err
+		}
+		summary = redacted
 	}
 
 	summaryMsg := openai.ChatCompletionMessage{

@@ -33,8 +33,9 @@ Evolve compaction from a simple summary into a full context‑management system 
    - Enforce structure in summaries (decisions, open tasks, files, commands, constraints).
 
 7. **Redaction & Privacy**
-   - Add a redaction policy for summaries (PII, secrets, tokens).
-   - Allow opt‑out or strict redaction modes.
+   - Add a redaction policy for summaries via external analyzers.
+   - Keep core policy framework minimal; no built‑in PII regexes.
+   - Allow opt‑out or strict modes driven by the external analyzer.
 
 8. **Metrics & Debugging**
    - Record compaction events (reason, token counts, size saved).
