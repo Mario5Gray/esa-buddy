@@ -55,3 +55,63 @@ func TestHandleToolCallsDeniedByGate(t *testing.T) {
 		t.Fatalf("expected tool_call_id %q, got %q", "call_1", last.ToolCallID)
 	}
 }
+
+type allowGate struct{}
+
+func (allowGate) Evaluate(intent security.ToolIntent) (security.Decision, *security.SignedIntent, error) {
+	return security.Allow, nil, nil
+}
+
+func TestHandleToolCallsAllowedByGate(t *testing.T) {
+	app := &Application{
+		agent: agent.Agent{
+			Functions: []agent.FunctionConfig{
+				{
+					Name:        "noop",
+					Description: "noop",
+					Command:     "printf ''",
+					Safe:        true,
+				},
+			},
+		},
+		toolGate: security.GateChain{
+			Gates: []security.Gate{allowGate{}},
+		},
+		execTooler: stubExecutor{},
+	}
+	app.debugPrint = func(string, ...any) {}
+
+	toolCalls := []openai.ToolCall{
+		{
+			ID:   "call_2",
+			Type: "function",
+			Function: openai.FunctionCall{
+				Name:      "noop",
+				Arguments: "{}",
+			},
+		},
+	}
+
+	app.handleToolCalls(toolCalls, options.CLIOptions{})
+
+	if len(app.messages) == 0 {
+		t.Fatalf("expected tool response message, got none")
+	}
+
+	last := app.messages[len(app.messages)-1]
+	if last.Role != "tool" {
+		t.Fatalf("expected role tool, got %q", last.Role)
+	}
+	if last.ToolCallID != "call_2" {
+		t.Fatalf("expected tool_call_id %q, got %q", "call_2", last.ToolCallID)
+	}
+	if last.Content == "" || last.Content[:7] != "Command" {
+		t.Fatalf("expected tool response content, got %q", last.Content)
+	}
+}
+
+type stubExecutor struct{}
+
+func (stubExecutor) Execute(askLevel string, fc agent.FunctionConfig, args string) (bool, string, string, string, error) {
+	return true, "noop", "", "ok", nil
+}

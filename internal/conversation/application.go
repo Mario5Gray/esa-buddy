@@ -13,12 +13,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/config"
+	"github.com/meain/esa/internal/executor"
 	"github.com/meain/esa/internal/mcp"
 	"github.com/meain/esa/internal/options"
 	"github.com/meain/esa/internal/security"
 	"github.com/meain/esa/internal/token"
 	"github.com/meain/esa/internal/tokenizer"
-	"github.com/meain/esa/internal/tools"
 	"github.com/meain/esa/internal/utils"
 	"github.com/sashabaranov/go-openai"
 )
@@ -74,6 +74,7 @@ type Application struct {
 	lastCompactionTokenEstimate int
 	counterProvider             tokenizer.CounterProvider
 	toolGate                    security.GateChain
+	execTooler                  executor.Executor
 }
 
 // ProviderInfo contains provider-specific configuration.
@@ -228,6 +229,10 @@ func (app *Application) StopMCPServers() {
 
 func (app *Application) SetToolGate(chain security.GateChain) {
 	app.toolGate = chain
+}
+
+func (app *Application) SetToolExecutor(exec executor.Executor) {
+	app.execTooler = exec
 }
 
 func (app *Application) SetModel(modelStr string) error {
@@ -504,6 +509,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 				security.DenyGate{},
 			},
 		},
+		execTooler: executor.DefaultExecutor{},
 
 		debug:         opts.DebugMode,
 		showCommands:  showCommands && !showToolCalls && !opts.DebugMode,
@@ -827,6 +833,8 @@ func (app *Application) handleToolCalls(toolCalls []openai.ToolCall, opts option
 			ToolName: matchedFunc.Name,
 			ArgsJSON: toolCall.Function.Arguments,
 		}
+		// Tool execution is gated by an ordered policy chain. The first gate to
+		// return Allow or Deny wins; Abstain continues; all-abstain defaults to Deny.
 		decision, _, err := app.toolGate.Evaluate(intent)
 		if err != nil || decision != security.Allow {
 			app.debugPrint("Tool Gate",
@@ -841,7 +849,11 @@ func (app *Application) handleToolCalls(toolCalls []openai.ToolCall, opts option
 			continue
 		}
 
-		approved, command, stdin, result, err := tools.ExecuteFunction(
+		execTooler := app.execTooler
+		if execTooler == nil {
+			execTooler = executor.DefaultExecutor{}
+		}
+		approved, command, stdin, result, err := execTooler.Execute(
 			app.getEffectiveAskLevel(),
 			matchedFunc,
 			toolCall.Function.Arguments,

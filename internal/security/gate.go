@@ -1,5 +1,8 @@
 package security
 
+// GateChains are ordered in execution. The first gate to return Allow or Deny
+// short-circuits evaluation; Abstain means "no opinion, continue". If all gates
+// abstain, the chain defaults to Deny. Errors from any gate also deny.
 type Decision int
 
 const (
@@ -27,6 +30,7 @@ type GateChain struct {
 	Gates []Gate
 }
 
+// Defaulting to implicit deny for safety.
 func (gc GateChain) Evaluate(intent ToolIntent) (Decision, *SignedIntent, error) {
 	for _, g := range gc.Gates {
 		decision, signed, err := g.Evaluate(intent)
