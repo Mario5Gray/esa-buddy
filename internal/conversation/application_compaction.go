@@ -176,6 +176,26 @@ func formatMessageForSummary(msg openai.ChatCompletionMessage) string {
 		b.WriteString(": ")
 	}
 
+	if msg.Role == "tool" {
+		// Avoid summarizing tool outputs verbatim; keep a compact marker.
+		if msg.Name != "" {
+			b.WriteString(msg.Name)
+			b.WriteString(" ")
+		}
+		if msg.ToolCallID != "" {
+			b.WriteString("(tool_call_id=")
+			b.WriteString(msg.ToolCallID)
+			b.WriteString(") ")
+		}
+		if msg.Content != "" {
+			b.WriteString("[output omitted, ")
+			b.WriteString(fmt.Sprintf("%d chars]", len(msg.Content)))
+		} else {
+			b.WriteString("[output omitted]")
+		}
+		return strings.TrimSpace(b.String())
+	}
+
 	if msg.Content != "" {
 		b.WriteString(msg.Content)
 	}

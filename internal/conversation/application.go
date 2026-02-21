@@ -15,6 +15,7 @@ import (
 	"github.com/meain/esa/internal/config"
 	"github.com/meain/esa/internal/mcp"
 	"github.com/meain/esa/internal/options"
+	"github.com/meain/esa/internal/security"
 	"github.com/meain/esa/internal/token"
 	"github.com/meain/esa/internal/tokenizer"
 	"github.com/meain/esa/internal/tools"
@@ -72,6 +73,7 @@ type Application struct {
 	lastCompactionCharCount     int
 	lastCompactionTokenEstimate int
 	counterProvider             tokenizer.CounterProvider
+	toolGate                    security.GateChain
 }
 
 // ProviderInfo contains provider-specific configuration.
@@ -222,6 +224,10 @@ func (app *Application) StartMCPServers(ctx context.Context) error {
 
 func (app *Application) StopMCPServers() {
 	app.mcpManager.StopAllServers()
+}
+
+func (app *Application) SetToolGate(chain security.GateChain) {
+	app.toolGate = chain
 }
 
 func (app *Application) SetModel(modelStr string) error {
@@ -492,6 +498,12 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 			provider.Set("openai", tokenizer.NewTiktokenCounter())
 			return provider
 		}(),
+		toolGate: security.GateChain{
+			Gates: []security.Gate{
+				security.HumanGate{},
+				security.DenyGate{},
+			},
+		},
 
 		debug:         opts.DebugMode,
 		showCommands:  showCommands && !showToolCalls && !opts.DebugMode,
@@ -810,6 +822,24 @@ func (app *Application) handleToolCalls(toolCalls []openai.ToolCall, opts option
 		// value explicitly in the nested esa calls.
 		provider, model, _ := app.parseModel()
 		os.Setenv("ESA_MODEL", fmt.Sprintf("%s/%s", provider, model))
+
+		intent := security.ToolIntent{
+			ToolName: matchedFunc.Name,
+			ArgsJSON: toolCall.Function.Arguments,
+		}
+		decision, _, err := app.toolGate.Evaluate(intent)
+		if err != nil || decision != security.Allow {
+			app.debugPrint("Tool Gate",
+				fmt.Sprintf("Decision: %v", decision),
+				fmt.Sprintf("Error: %v", err))
+			app.messages = append(app.messages, openai.ChatCompletionMessage{
+				Role:       "tool",
+				Name:       toolCall.Function.Name,
+				Content:    "Tool execution denied by policy.",
+				ToolCallID: toolCall.ID,
+			})
+			continue
+		}
 
 		approved, command, stdin, result, err := tools.ExecuteFunction(
 			app.getEffectiveAskLevel(),
