@@ -6,6 +6,7 @@
 - [x] Track input/output tokens per request
 - [x] Display token usage in `--show-stats`
 - [x] Optional: estimate costs per provider/model
+- [x] TokenCounter interface with tiktoken-backed estimates (fallback if unavailable)
 
 ### 2. Agent Inheritance
 - [x] Define `extends` field in agent TOML
@@ -22,8 +23,9 @@
 - [x] Auto-summarize older messages into a system summary
 - [x] Add CLI flags to enable/disable compaction
 - [x] Track compaction thresholds per conversation (saved in history)
-- [ ] Avoid summarizing tool outputs verbatim; keep key results only
-- [ ] Summarize with a dedicated model (configurable)
+- [x] Avoid summarizing tool outputs verbatim; keep key results only
+- [x] Summarize with a dedicated model (configurable)
+- [x] Persist compaction metadata (message/char/token estimates) in history
 - [ ] Redaction/PII policy for summaries
 - [ ] Optional: store summary in history metadata instead of system message
 
@@ -90,6 +92,7 @@
 ## Considerations
 
 ### Security
+- [x] Tool execution policy gate (ordered, default deny; human approval supported)
 - [ ] Agent signing / verification
 - [ ] Trusted publisher registry
 - [ ] Checksum verification on install
