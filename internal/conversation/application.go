@@ -70,6 +70,7 @@ type Application struct {
 	compactMaxChars             int
 	compactionRedactionPolicy   string
 	compactionRedactor          redaction.Policy
+	compactionSummary           string
 	lastModelUsed               string
 	lastCompactionTrigger       string
 	lastCompactionMsgCount      int
@@ -282,11 +283,27 @@ func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*ope
 
 	// Retry logic for rate limiting
 	for attempt := 0; attempt <= maxRetryCount; attempt++ {
+		messages := app.messages
+		if app.compactionSummary != "" {
+			summaryMsg := openai.ChatCompletionMessage{
+				Role:    "system",
+				Content: app.compactionSummary,
+			}
+			if len(messages) > 0 && messages[0].Role == "system" {
+				messages = append(
+					[]openai.ChatCompletionMessage{messages[0], summaryMsg},
+					messages[1:]...,
+				)
+			} else {
+				messages = append([]openai.ChatCompletionMessage{summaryMsg}, messages...)
+			}
+		}
+
 		stream, err = client.CreateChatCompletionStream(
 			context.Background(),
 			openai.ChatCompletionRequest{
 				Model:         modelStr,
-				Messages:      app.messages,
+				Messages:      messages,
 				Tools:         tools,
 				StreamOptions: &openai.StreamOptions{IncludeUsage: true},
 			})
@@ -329,8 +346,9 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 	}
 
 	var (
-		messages []openai.ChatCompletionMessage
-		usage    token.Usage
+		messages          []openai.ChatCompletionMessage
+		usage             token.Usage
+		compactionSummary string
 	)
 
 	// If conversation index is set without retry, also set continue chat
@@ -361,6 +379,9 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		allMessages := history.Messages
 		agentPath := history.AgentPath
 		messageMeta := history.MessageMeta
+		if history.Compaction != nil && history.Compaction.Summary != "" {
+			compactionSummary = history.Compaction.Summary
+		}
 
 		// Carry forward token counts from prior turns in this conversation
 		if history.Usage != nil {
@@ -368,8 +389,9 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		}
 
 		app := &Application{
-			debug:       opts.DebugMode,
-			messageMeta: messageMeta,
+			debug:             opts.DebugMode,
+			messageMeta:       messageMeta,
+			compactionSummary: compactionSummary,
 		}
 		app.debugPrint = createDebugPrinter(app.debug)
 
@@ -502,6 +524,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		compactMaxChars:           compactMaxChars,
 		compactionRedactionPolicy: compactionRedactionPolicy,
 		compactionRedactor:        redaction.PolicyByName(compactionRedactionPolicy),
+		compactionSummary:         compactionSummary,
 		counterProvider: func() tokenizer.CounterProvider {
 			fallback := tokenizer.FallbackCounter{CharsPerToken: 4}
 			provider := tokenizer.NewMapProvider(fallback)
@@ -706,6 +729,7 @@ type CompactionMeta struct {
 	KeepLast          int    `json:"keep_last"`
 	MaxChars          int    `json:"max_chars"`
 	RedactionPolicy   string `json:"redaction_policy,omitempty"`
+	Summary           string `json:"summary,omitempty"`
 	LastTrigger       string `json:"last_trigger,omitempty"`
 	LastMsgCount      int    `json:"last_msg_count,omitempty"`
 	LastCharCount     int    `json:"last_char_count,omitempty"`
@@ -731,6 +755,7 @@ func (app *Application) saveConversationHistory() {
 		KeepLast:        app.compactKeepLast,
 		MaxChars:        app.compactMaxChars,
 		RedactionPolicy: app.compactionRedactionPolicy,
+		Summary:         app.compactionSummary,
 	}
 	if app.lastCompactionTrigger != "" {
 		compaction.LastTrigger = app.lastCompactionTrigger

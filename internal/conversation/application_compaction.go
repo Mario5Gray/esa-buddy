@@ -14,7 +14,6 @@ const (
 	defaultCompactionMaxMessages = 40
 	defaultCompactionKeepLast    = 12
 	defaultCompactionMaxChars    = 20000
-	compactionSummaryPrefix      = "Conversation summary (compacted):\n"
 )
 
 func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsgs int, keepLast int, maxChars int, redactionPolicy string) {
@@ -69,6 +68,9 @@ func (app *Application) compactMessagesIfNeeded() error {
 		return nil
 	}
 
+	if existingSummary == "" {
+		existingSummary = app.compactionSummary
+	}
 	summaryInput := buildCompactionInput(existingSummary, toSummarize)
 	if app.compactionRedactor != nil {
 		redacted, err := app.compactionRedactor.Redact(summaryInput)
@@ -81,6 +83,7 @@ func (app *Application) compactMessagesIfNeeded() error {
 	if err != nil {
 		return err
 	}
+	summary = strings.TrimSpace(summary)
 	if app.compactionRedactor != nil {
 		redacted, err := app.compactionRedactor.Redact(summary)
 		if err != nil {
@@ -89,12 +92,8 @@ func (app *Application) compactMessagesIfNeeded() error {
 		summary = redacted
 	}
 
-	summaryMsg := openai.ChatCompletionMessage{
-		Role:    "system",
-		Content: compactionSummaryPrefix + strings.TrimSpace(summary),
-	}
-
-	app.messages = append([]openai.ChatCompletionMessage{systemMsg, summaryMsg}, tail...)
+	app.compactionSummary = summary
+	app.messages = append([]openai.ChatCompletionMessage{systemMsg}, tail...)
 	app.debugPrint("Compaction", fmt.Sprintf("Compacted %d messages into summary", len(toSummarize)))
 	app.lastCompactionTrigger = "threshold_exceeded"
 	app.lastCompactionMsgCount = msgCount
@@ -139,15 +138,7 @@ func splitMessagesForCompaction(messages []openai.ChatCompletionMessage, keepLas
 	}
 
 	system = messages[0]
-
-	var rest []openai.ChatCompletionMessage
-	for i := 1; i < len(messages); i++ {
-		if isCompactionSummaryMessage(messages[i]) {
-			existingSummary = strings.TrimSpace(strings.TrimPrefix(messages[i].Content, compactionSummaryPrefix))
-			continue
-		}
-		rest = append(rest, messages[i])
-	}
+	rest := messages[1:]
 
 	if len(rest) <= keepLast {
 		return system, nil, rest, existingSummary, true
@@ -157,10 +148,6 @@ func splitMessagesForCompaction(messages []openai.ChatCompletionMessage, keepLas
 	toSummarize = rest[:cut]
 	tail = rest[cut:]
 	return system, toSummarize, tail, existingSummary, true
-}
-
-func isCompactionSummaryMessage(msg openai.ChatCompletionMessage) bool {
-	return msg.Role == "system" && strings.HasPrefix(msg.Content, compactionSummaryPrefix)
 }
 
 func buildCompactionInput(existingSummary string, messages []openai.ChatCompletionMessage) string {

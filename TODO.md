@@ -27,7 +27,7 @@
 - [x] Summarize with a dedicated model (configurable)
 - [x] Persist compaction metadata (message/char/token estimates) in history
 - [ ] Redaction policy for summaries (external analyzer)
-- [ ] Optional: store summary in history metadata instead of system message
+- [x] Store summary in history metadata instead of system message
 
 ### 5. Prompt Compaction Phase 2 (Project Overview)
 - [ ] Token-aware trigger based on model context window
