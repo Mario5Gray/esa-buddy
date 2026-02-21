@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/google/uuid"
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/config"
 	"github.com/meain/esa/internal/mcp"
@@ -43,9 +44,11 @@ type Application struct {
 	agent           agent.Agent
 	agentPath       string
 	client          *openai.Client
+	clients         map[string]*openai.Client
 	debug           bool
 	historyFile     string
 	messages        []openai.ChatCompletionMessage
+	messageMeta     []HistoryMessageMeta
 	usage           token.Usage // accumulated token counts across LLM calls
 	debugPrint      func(section string, v ...any)
 	showCommands    bool
@@ -62,6 +65,7 @@ type Application struct {
 	compactMaxMsgs  int
 	compactKeepLast int
 	compactMaxChars int
+	lastModelUsed   string
 }
 
 // ProviderInfo contains provider-specific configuration.
@@ -76,11 +80,67 @@ type ProviderInfo struct {
 // returns provider, model name, base URL and API key environment
 // variable
 func (app *Application) parseModel() (provider string, model string, info ProviderInfo) {
-	return parseModel(app.modelFlag, app.agent, app.config)
+	modelStr := app.resolveModelString("chat", "")
+	return parseModel(modelStr, app.agent, app.config)
 }
 
 func (app *Application) ParseModel() (provider string, model string, info ProviderInfo) {
 	return app.parseModel()
+}
+
+func (app *Application) resolveModelString(purpose string, toolName string) string {
+	if app.config != nil {
+		ms := app.config.ModelStrategy
+		switch purpose {
+		case "summarize":
+			if ms.Summarize != "" {
+				return ms.Summarize
+			}
+		case "tool":
+			if toolName != "" && ms.Tool != nil {
+				if val, ok := ms.Tool[toolName]; ok {
+					return val
+				}
+			}
+			if ms.ToolDefault != "" {
+				return ms.ToolDefault
+			}
+		default:
+			if ms.Chat != "" {
+				return ms.Chat
+			}
+		}
+	}
+
+	if app.modelFlag != "" {
+		return app.modelFlag
+	}
+	if app.agent.DefaultModel != "" {
+		return app.agent.DefaultModel
+	}
+	if app.config != nil && app.config.Settings.DefaultModel != "" {
+		return app.config.Settings.DefaultModel
+	}
+	return defaultModel
+}
+
+func (app *Application) clientForModel(modelStr string) (*openai.Client, error) {
+	if modelStr == "" {
+		modelStr = app.resolveModelString("chat", "")
+	}
+	if app.clients == nil {
+		app.clients = make(map[string]*openai.Client)
+	}
+	if client, ok := app.clients[modelStr]; ok {
+		return client, nil
+	}
+
+	client, err := setupOpenAIClient(modelStr, app.agent, app.config)
+	if err != nil {
+		return nil, err
+	}
+	app.clients[modelStr] = client
+	return client, nil
 }
 
 func (app *Application) GetEffectiveAskLevel() string {
@@ -111,6 +171,16 @@ func (app *Application) AddMessage(role, content string) {
 		Role:    role,
 		Content: content,
 	})
+	if app.lastModelUsed != "" {
+		app.ensureMessageMeta(app.lastModelUsed)
+	}
+}
+
+func newMessageID() string {
+	if id, err := uuid.NewV7(); err == nil {
+		return id.String()
+	}
+	return uuid.New().String()
 }
 
 func (app *Application) Messages() []openai.ChatCompletionMessage {
@@ -183,12 +253,19 @@ func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*ope
 		app.debugPrint("Compaction", fmt.Sprintf("Compaction skipped: %v", err))
 	}
 
+	modelStr := app.resolveModelString("chat", "")
+	app.lastModelUsed = modelStr
+	client, err := app.clientForModel(modelStr)
+	if err != nil {
+		return nil, err
+	}
+
 	// Retry logic for rate limiting
 	for attempt := 0; attempt <= maxRetryCount; attempt++ {
-		stream, err = app.client.CreateChatCompletionStream(
+		stream, err = client.CreateChatCompletionStream(
 			context.Background(),
 			openai.ChatCompletionRequest{
-				Model:         app.getModel(),
+				Model:         modelStr,
 				Messages:      app.messages,
 				Tools:         tools,
 				StreamOptions: &openai.StreamOptions{IncludeUsage: true},
@@ -263,13 +340,17 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 
 		allMessages := history.Messages
 		agentPath := history.AgentPath
+		messageMeta := history.MessageMeta
 
 		// Carry forward token counts from prior turns in this conversation
 		if history.Usage != nil {
 			usage = *history.Usage
 		}
 
-		app := &Application{debug: opts.DebugMode}
+		app := &Application{
+			debug:       opts.DebugMode,
+			messageMeta: messageMeta,
+		}
 		app.debugPrint = createDebugPrinter(app.debug)
 
 		if opts.RetryChat && len(allMessages) > 1 {
@@ -360,6 +441,12 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 	showCommands := opts.ShowCommands || config.Settings.ShowCommands
 	showToolCalls := opts.ShowToolCalls || config.Settings.ShowToolCalls
 	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars := normalizeCompactionSettings(config.Settings)
+	if opts.Compaction {
+		compactPrompt = true
+	}
+	if opts.NoCompaction {
+		compactPrompt = false
+	}
 
 	// Initialize MCP manager
 	mcpManager := mcp.NewMCPManager()
@@ -378,8 +465,10 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		agent:           agentCfg,
 		agentPath:       opts.AgentPath,
 		client:          client,
+		clients:         map[string]*openai.Client{opts.Model: client},
 		historyFile:     historyFile,
 		messages:        messages,
+		messageMeta:     nil,
 		usage:           usage,
 		modelFlag:       opts.Model,
 		config:          config,
@@ -441,6 +530,8 @@ func (app *Application) Run(opts options.CLIOptions) {
 			Content: prompt,
 		}}
 	}
+	provider, model, _ := app.parseModel()
+	app.ensureMessageMeta(fmt.Sprintf("%s/%s", provider, model))
 
 	// Debug prints before starting communication
 	app.debugPrint("System Message", app.messages[0].Content)
@@ -467,6 +558,9 @@ func (app *Application) processInput(commandStr, input string) {
 			Role:    "user",
 			Content: input,
 		})
+		if app.lastModelUsed != "" {
+			app.ensureMessageMeta(app.lastModelUsed)
+		}
 	}
 
 	if len(commandStr) > 0 {
@@ -474,6 +568,9 @@ func (app *Application) processInput(commandStr, input string) {
 			Role:    "user",
 			Content: commandStr,
 		})
+		if app.lastModelUsed != "" {
+			app.ensureMessageMeta(app.lastModelUsed)
+		}
 	}
 
 	// If no input from stdin or command line, use initial message from agent config
@@ -487,6 +584,9 @@ func (app *Application) processInput(commandStr, input string) {
 			Role:    "user",
 			Content: prompt,
 		})
+		if app.lastModelUsed != "" {
+			app.ensureMessageMeta(app.lastModelUsed)
+		}
 	}
 }
 
@@ -510,6 +610,9 @@ func (app *Application) runConversationLoop(opts options.CLIOptions) {
 
 		assistantMsg := app.handleStreamResponse(stream)
 		app.messages = append(app.messages, assistantMsg)
+		if app.lastModelUsed != "" {
+			app.ensureMessageMeta(app.lastModelUsed)
+		}
 
 		// Save history after each assistant response
 		app.saveConversationHistory()
@@ -526,7 +629,8 @@ func (app *Application) runConversationLoop(opts options.CLIOptions) {
 }
 
 func (app *Application) getModel() string {
-	_, model, _ := app.parseModel()
+	modelStr := app.resolveModelString("chat", "")
+	_, model, _ := parseModel(modelStr, app.agent, app.config)
 	return model
 }
 
@@ -547,10 +651,17 @@ func (app *Application) getEffectiveAskLevel() string {
 }
 
 type ConversationHistory struct {
-	AgentPath string                         `json:"agent_path"`
-	Model     string                         `json:"model"`
-	Messages  []openai.ChatCompletionMessage `json:"messages"`
-	Usage     *token.Usage                   `json:"usage,omitempty"` // nil in history files from before token tracking
+	AgentPath   string                         `json:"agent_path"`
+	Model       string                         `json:"model"`
+	Messages    []openai.ChatCompletionMessage `json:"messages"`
+	MessageMeta []HistoryMessageMeta           `json:"message_meta,omitempty"`
+	Usage       *token.Usage                   `json:"usage,omitempty"` // nil in history files from before token tracking
+}
+
+type HistoryMessageMeta struct {
+	ID    string `json:"id"`
+	Model string `json:"model,omitempty"`
+	Role  string `json:"role,omitempty"`
 }
 
 func (app *Application) saveConversationHistory() {
@@ -565,11 +676,14 @@ func (app *Application) saveConversationHistory() {
 		usagePtr = &u
 	}
 
+	messageMeta := app.ensureMessageMeta(modelString)
+
 	history := ConversationHistory{
-		AgentPath: app.agentPath,
-		Model:     modelString,
-		Messages:  app.messages,
-		Usage:     usagePtr,
+		AgentPath:   app.agentPath,
+		Model:       modelString,
+		Messages:    app.messages,
+		MessageMeta: messageMeta,
+		Usage:       usagePtr,
 	}
 
 	if data, err := json.Marshal(history); err == nil {
@@ -577,6 +691,38 @@ func (app *Application) saveConversationHistory() {
 			app.debugPrint("Error", fmt.Sprintf("Failed to save history: %v", err))
 		}
 	}
+}
+
+func (app *Application) ensureMessageMeta(modelString string) []HistoryMessageMeta {
+	if app.messageMeta == nil {
+		app.messageMeta = make([]HistoryMessageMeta, 0, len(app.messages))
+	}
+
+	// Trim excess if messages were truncated (e.g., retry mode)
+	if len(app.messageMeta) > len(app.messages) {
+		app.messageMeta = app.messageMeta[:len(app.messages)]
+	}
+
+	for len(app.messageMeta) < len(app.messages) {
+		msg := app.messages[len(app.messageMeta)]
+		app.messageMeta = append(app.messageMeta, HistoryMessageMeta{
+			ID:    newMessageID(),
+			Model: modelString,
+			Role:  msg.Role,
+		})
+	}
+
+	// Fill missing model/role on existing entries
+	for i := range app.messageMeta {
+		if app.messageMeta[i].Model == "" {
+			app.messageMeta[i].Model = modelString
+		}
+		if app.messageMeta[i].Role == "" && i < len(app.messages) {
+			app.messageMeta[i].Role = app.messages[i].Role
+		}
+	}
+
+	return app.messageMeta
 }
 
 func (app *Application) generateProgressSummary(funcName string, args string) string {

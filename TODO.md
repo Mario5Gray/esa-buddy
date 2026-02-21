@@ -20,12 +20,22 @@
 
 ### 4. Prompt Compaction
 - [x] Auto-summarize older messages into a system summary
-- [ ] Add CLI flags to enable/disable compaction
+- [x] Add CLI flags to enable/disable compaction
 - [ ] Track compaction thresholds per conversation (saved in history)
 - [ ] Avoid summarizing tool outputs verbatim; keep key results only
 - [ ] Summarize with a dedicated model (configurable)
 - [ ] Redaction/PII policy for summaries
 - [ ] Optional: store summary in history metadata instead of system message
+
+### 5. Prompt Compaction Phase 2 (Project Overview)
+- [ ] Token-aware trigger based on model context window
+- [ ] Virtualize large tool outputs into artifacts (cache files)
+- [ ] Artifact registry with read/search retrieval tools
+- [ ] Multi-layer compaction: summary + recent + artifact refs
+- [ ] Persist pre-compaction archive for recovery
+- [ ] Dedicated summary model + structured summary schema
+- [ ] Redaction/PII policy and opt-out modes
+- [ ] Compaction metrics and history metadata
 
 ## Phase 2: Hub Architecture
 
@@ -88,3 +98,18 @@
 - [ ] Agent ratings / popularity metrics
 - [ ] Private hubs for teams/orgs
 - [ ] Agent dependency graph visualization
+
+## Phase 5: Tool Graph / Lingo Layer
+
+### 12. Tool Signatures
+- [ ] Define typed inputs/outputs for tools
+- [ ] Map existing function parameter types into signature schema
+
+### 13. Tool Graph Model
+- [ ] Graph nodes = tools, edges = dataflow
+- [ ] Support fan-out and fan-in compositions
+
+### 14. Validation & Execution
+- [ ] Validate input/output compatibility
+- [ ] Execute graph in topological order
+- [ ] Persist outputs as named facts for downstream steps

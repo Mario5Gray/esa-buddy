@@ -142,6 +142,8 @@ func CreateRootCommand() *cobra.Command {
 	rootCmd.Flags().StringVar(&opts.SystemPrompt, "system-prompt", "", "Override the system prompt for the agent")
 	rootCmd.Flags().BoolVar(&opts.Think, "think", false, "Enable model thinking/chain-of-thought for this request")
 	rootCmd.Flags().BoolVar(&opts.NoThink, "no-think", false, "Disable model thinking/chain-of-thought for this request")
+	rootCmd.Flags().BoolVar(&opts.Compaction, "compaction", false, "Enable prompt compaction for this request")
+	rootCmd.Flags().BoolVar(&opts.NoCompaction, "no-compaction", false, "Disable prompt compaction for this request")
 
 	// List/show flags
 	rootCmd.Flags().BoolVar(&opts.ListAgents, "list-agents", false, "List all available agents")

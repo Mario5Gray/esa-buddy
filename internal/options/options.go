@@ -29,4 +29,6 @@ type CLIOptions struct {
 	Pretty         bool   // Pretty print markdown output using glow
 	Think          bool   // Enable model thinking/chain-of-thought
 	NoThink        bool   // Disable model thinking/chain-of-thought
+	Compaction     bool   // Enable prompt compaction
+	NoCompaction   bool   // Disable prompt compaction
 }

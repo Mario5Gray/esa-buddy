@@ -24,9 +24,18 @@ type Settings struct {
 
 // Config represents the global configuration structure
 type Config struct {
-	ModelAliases map[string]string         `toml:"model_aliases"`
-	Providers    map[string]ProviderConfig `toml:"providers"`
-	Settings     Settings                  `toml:"settings"`
+	ModelAliases  map[string]string         `toml:"model_aliases"`
+	Providers     map[string]ProviderConfig `toml:"providers"`
+	Settings      Settings                  `toml:"settings"`
+	ModelStrategy ModelStrategy             `toml:"model_strategy"`
+}
+
+// ModelStrategy defines optional model selection by purpose/tool.
+type ModelStrategy struct {
+	Chat        string            `toml:"chat"`
+	Summarize   string            `toml:"summarize"`
+	ToolDefault string            `toml:"tool_default"`
+	Tool        map[string]string `toml:"tool"`
 }
 
 // ProviderConfig represents the configuration for a model provider

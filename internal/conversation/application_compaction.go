@@ -78,9 +78,14 @@ func (app *Application) compactMessagesIfNeeded() error {
 
 func (app *Application) summarizeConversation(input string) (string, error) {
 	ctx := context.Background()
+	modelStr := app.resolveModelString("summarize", "")
+	client, err := app.clientForModel(modelStr)
+	if err != nil {
+		return "", err
+	}
 	system := "Summarize the conversation for future context. Preserve decisions, constraints, file paths, commands, names, and open tasks. Be concise and factual."
 	req := openai.ChatCompletionRequest{
-		Model: app.getModel(),
+		Model: modelStr,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: "system", Content: system},
 			{Role: "user", Content: input},
@@ -88,7 +93,7 @@ func (app *Application) summarizeConversation(input string) (string, error) {
 		Temperature: 0.2,
 	}
 
-	resp, err := app.client.CreateChatCompletion(ctx, req)
+	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return "", err
 	}
