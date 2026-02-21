@@ -51,7 +51,11 @@ func (app *Application) compactMessagesIfNeeded() error {
 		return nil
 	}
 
-	if len(app.messages) <= app.compactMaxMsgs && messagesSize(app.messages) <= app.compactMaxChars {
+	msgCount := len(app.messages)
+	charCount := messagesSize(app.messages)
+	tokenEstimate := app.estimateTokens(buildTokenEstimateInput(app.messages))
+
+	if msgCount <= app.compactMaxMsgs && charCount <= app.compactMaxChars {
 		return nil
 	}
 
@@ -73,6 +77,10 @@ func (app *Application) compactMessagesIfNeeded() error {
 
 	app.messages = append([]openai.ChatCompletionMessage{systemMsg, summaryMsg}, tail...)
 	app.debugPrint("Compaction", fmt.Sprintf("Compacted %d messages into summary", len(toSummarize)))
+	app.lastCompactionTrigger = "threshold_exceeded"
+	app.lastCompactionMsgCount = msgCount
+	app.lastCompactionCharCount = charCount
+	app.lastCompactionTokenEstimate = tokenEstimate
 	return nil
 }
 
@@ -216,6 +224,35 @@ func messagesSize(messages []openai.ChatCompletionMessage) int {
 		total += messageSize(msg)
 	}
 	return total
+}
+
+func (app *Application) estimateTokens(text string) int {
+	if text == "" {
+		return 0
+	}
+
+	provider, model, _ := app.parseModel()
+	if app.counterProvider != nil {
+		if counter := app.counterProvider.CounterFor(provider); counter != nil {
+			if n := counter.Estimate(text, model); n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func buildTokenEstimateInput(messages []openai.ChatCompletionMessage) string {
+	var b strings.Builder
+	for _, msg := range messages {
+		line := formatMessageForSummary(msg)
+		if line == "" {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func messageSize(msg openai.ChatCompletionMessage) int {

@@ -5,7 +5,7 @@
 ### 1. Token Tracking
 - [x] Track input/output tokens per request
 - [x] Display token usage in `--show-stats`
-- [ ] Optional: estimate costs per provider/model
+- [x] Optional: estimate costs per provider/model
 
 ### 2. Agent Inheritance
 - [x] Define `extends` field in agent TOML
@@ -21,7 +21,7 @@
 ### 4. Prompt Compaction
 - [x] Auto-summarize older messages into a system summary
 - [x] Add CLI flags to enable/disable compaction
-- [ ] Track compaction thresholds per conversation (saved in history)
+- [x] Track compaction thresholds per conversation (saved in history)
 - [ ] Avoid summarizing tool outputs verbatim; keep key results only
 - [ ] Summarize with a dedicated model (configurable)
 - [ ] Redaction/PII policy for summaries

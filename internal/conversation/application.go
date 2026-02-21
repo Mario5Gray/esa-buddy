@@ -16,6 +16,7 @@ import (
 	"github.com/meain/esa/internal/mcp"
 	"github.com/meain/esa/internal/options"
 	"github.com/meain/esa/internal/token"
+	"github.com/meain/esa/internal/tokenizer"
 	"github.com/meain/esa/internal/tools"
 	"github.com/meain/esa/internal/utils"
 	"github.com/sashabaranov/go-openai"
@@ -41,31 +42,36 @@ const (
 )
 
 type Application struct {
-	agent           agent.Agent
-	agentPath       string
-	client          *openai.Client
-	clients         map[string]*openai.Client
-	debug           bool
-	historyFile     string
-	messages        []openai.ChatCompletionMessage
-	messageMeta     []HistoryMessageMeta
-	usage           token.Usage // accumulated token counts across LLM calls
-	debugPrint      func(section string, v ...any)
-	showCommands    bool
-	showToolCalls   bool
-	showProgress    bool
-	lastProgressLen int
-	modelFlag       string
-	config          *config.Config
-	mcpManager      *mcp.MCPManager
-	cliAskLevel     string
-	prettyOutput    bool
-	thinkEnabled    *bool // nil = use agent default, true/false = CLI override
-	compactPrompt   bool
-	compactMaxMsgs  int
-	compactKeepLast int
-	compactMaxChars int
-	lastModelUsed   string
+	agent                       agent.Agent
+	agentPath                   string
+	client                      *openai.Client
+	clients                     map[string]*openai.Client
+	debug                       bool
+	historyFile                 string
+	messages                    []openai.ChatCompletionMessage
+	messageMeta                 []HistoryMessageMeta
+	usage                       token.Usage // accumulated token counts across LLM calls
+	debugPrint                  func(section string, v ...any)
+	showCommands                bool
+	showToolCalls               bool
+	showProgress                bool
+	lastProgressLen             int
+	modelFlag                   string
+	config                      *config.Config
+	mcpManager                  *mcp.MCPManager
+	cliAskLevel                 string
+	prettyOutput                bool
+	thinkEnabled                *bool // nil = use agent default, true/false = CLI override
+	compactPrompt               bool
+	compactMaxMsgs              int
+	compactKeepLast             int
+	compactMaxChars             int
+	lastModelUsed               string
+	lastCompactionTrigger       string
+	lastCompactionMsgCount      int
+	lastCompactionCharCount     int
+	lastCompactionTokenEstimate int
+	counterProvider             tokenizer.CounterProvider
 }
 
 // ProviderInfo contains provider-specific configuration.
@@ -480,6 +486,12 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		compactMaxMsgs:  compactMaxMsgs,
 		compactKeepLast: compactKeepLast,
 		compactMaxChars: compactMaxChars,
+		counterProvider: func() tokenizer.CounterProvider {
+			fallback := tokenizer.FallbackCounter{CharsPerToken: 4}
+			provider := tokenizer.NewMapProvider(fallback)
+			provider.Set("openai", tokenizer.NewTiktokenCounter())
+			return provider
+		}(),
 
 		debug:         opts.DebugMode,
 		showCommands:  showCommands && !showToolCalls && !opts.DebugMode,
@@ -655,6 +667,7 @@ type ConversationHistory struct {
 	Model       string                         `json:"model"`
 	Messages    []openai.ChatCompletionMessage `json:"messages"`
 	MessageMeta []HistoryMessageMeta           `json:"message_meta,omitempty"`
+	Compaction  *CompactionMeta                `json:"compaction,omitempty"`
 	Usage       *token.Usage                   `json:"usage,omitempty"` // nil in history files from before token tracking
 }
 
@@ -662,6 +675,17 @@ type HistoryMessageMeta struct {
 	ID    string `json:"id"`
 	Model string `json:"model,omitempty"`
 	Role  string `json:"role,omitempty"`
+}
+
+type CompactionMeta struct {
+	Enabled           bool   `json:"enabled"`
+	MaxMessages       int    `json:"max_messages"`
+	KeepLast          int    `json:"keep_last"`
+	MaxChars          int    `json:"max_chars"`
+	LastTrigger       string `json:"last_trigger,omitempty"`
+	LastMsgCount      int    `json:"last_msg_count,omitempty"`
+	LastCharCount     int    `json:"last_char_count,omitempty"`
+	LastTokenEstimate int    `json:"last_token_estimate,omitempty"`
 }
 
 func (app *Application) saveConversationHistory() {
@@ -677,12 +701,25 @@ func (app *Application) saveConversationHistory() {
 	}
 
 	messageMeta := app.ensureMessageMeta(modelString)
+	compaction := &CompactionMeta{
+		Enabled:     app.compactPrompt,
+		MaxMessages: app.compactMaxMsgs,
+		KeepLast:    app.compactKeepLast,
+		MaxChars:    app.compactMaxChars,
+	}
+	if app.lastCompactionTrigger != "" {
+		compaction.LastTrigger = app.lastCompactionTrigger
+		compaction.LastMsgCount = app.lastCompactionMsgCount
+		compaction.LastCharCount = app.lastCompactionCharCount
+		compaction.LastTokenEstimate = app.lastCompactionTokenEstimate
+	}
 
 	history := ConversationHistory{
 		AgentPath:   app.agentPath,
 		Model:       modelString,
 		Messages:    app.messages,
 		MessageMeta: messageMeta,
+		Compaction:  compaction,
 		Usage:       usagePtr,
 	}
 
