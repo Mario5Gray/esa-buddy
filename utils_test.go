@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/meain/esa/internal/options"
+	"github.com/meain/esa/internal/utils"
 )
 
 func TestGetConversationIndex(t *testing.T) {
@@ -60,7 +63,7 @@ func TestGetConversationIndex(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotIndex, gotIsIndex := getConversationIndex(tt.conversation)
+			gotIndex, gotIsIndex := utils.GetConversationIndex(tt.conversation)
 			if gotIndex != tt.wantIndex {
 				t.Errorf("getConversationIndex() index = %v, want %v", gotIndex, tt.wantIndex)
 			}
@@ -108,24 +111,24 @@ func TestCreateNewHistoryFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotPath := createNewHistoryFile(tempDir, tt.agentName, tt.conversation)
-			
+			gotPath := utils.CreateNewHistoryFile(tempDir, tt.agentName, tt.conversation)
+
 			// Extract filename from full path
 			filename := filepath.Base(gotPath)
-			
+
 			// Check that the pattern exists in the filename
 			if !filepath.IsAbs(gotPath) {
 				t.Errorf("createNewHistoryFile() should return absolute path, got %v", gotPath)
 			}
-			
+
 			if gotPath[:len(tempDir)] != tempDir {
 				t.Errorf("createNewHistoryFile() should be in tempDir %v, got %v", tempDir, gotPath)
 			}
-			
+
 			if !containsString(filename, tt.wantPattern) {
 				t.Errorf("createNewHistoryFile() filename %v should contain pattern %v", filename, tt.wantPattern)
 			}
-			
+
 			// Check that it ends with .json
 			if filepath.Ext(filename) != ".json" {
 				t.Errorf("createNewHistoryFile() should end with .json, got %v", filename)
@@ -206,13 +209,13 @@ func TestFindHistoryFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotPath, err := findHistoryFile(tempDir, tt.conversation)
-			
+			gotPath, err := utils.FindHistoryFile(tempDir, tt.conversation)
+
 			if (err != nil) != tt.wantError {
 				t.Errorf("findHistoryFile() error = %v, wantError %v", err, tt.wantError)
 				return
 			}
-			
+
 			if !tt.wantError {
 				expectedPath := filepath.Join(tempDir, tt.wantFile)
 				if gotPath != expectedPath {
@@ -235,13 +238,13 @@ func TestGetHistoryFilePath(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		opts             *CLIOptions
+		opts             *options.CLIOptions
 		wantExists       bool
 		wantPatternCheck func(string) bool
 	}{
 		{
 			name: "New conversation with custom ID",
-			opts: &CLIOptions{
+			opts: &options.CLIOptions{
 				AgentName:    "test-agent",
 				Conversation: "new-session",
 				ContinueChat: false,
@@ -255,7 +258,7 @@ func TestGetHistoryFilePath(t *testing.T) {
 		},
 		{
 			name: "Continue existing conversation",
-			opts: &CLIOptions{
+			opts: &options.CLIOptions{
 				AgentName:    "test-agent",
 				Conversation: "existing-session",
 				ContinueChat: true,
@@ -268,7 +271,7 @@ func TestGetHistoryFilePath(t *testing.T) {
 		},
 		{
 			name: "Retry existing conversation",
-			opts: &CLIOptions{
+			opts: &options.CLIOptions{
 				AgentName:    "test-agent",
 				Conversation: "existing-session",
 				ContinueChat: false,
@@ -281,7 +284,7 @@ func TestGetHistoryFilePath(t *testing.T) {
 		},
 		{
 			name: "New conversation with numeric ID (index mode)",
-			opts: &CLIOptions{
+			opts: &options.CLIOptions{
 				AgentName:    "test-agent",
 				Conversation: "1",
 				ContinueChat: false,
@@ -297,12 +300,12 @@ func TestGetHistoryFilePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotPath, gotExists := getHistoryFilePath(tempDir, tt.opts)
-			
+			gotPath, gotExists := utils.GetHistoryFilePath(tempDir, tt.opts)
+
 			if gotExists != tt.wantExists {
 				t.Errorf("getHistoryFilePath() exists = %v, want %v", gotExists, tt.wantExists)
 			}
-			
+
 			if !tt.wantPatternCheck(gotPath) {
 				t.Errorf("getHistoryFilePath() path %v does not match expected pattern", gotPath)
 			}
@@ -312,10 +315,10 @@ func TestGetHistoryFilePath(t *testing.T) {
 
 // Helper function to check if a string contains a substring
 func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && s[len(s)-len(substr):] != substr && 
-		   (len(s) == len(substr) || s[:len(substr)] == substr || 
-		    s[len(s)-len(substr):] == substr || 
-		    findSubstring(s, substr))
+	return len(s) >= len(substr) && s[len(s)-len(substr):] != substr &&
+		(len(s) == len(substr) || s[:len(substr)] == substr ||
+			s[len(s)-len(substr):] == substr ||
+			findSubstring(s, substr))
 }
 
 func findSubstring(s, substr string) bool {

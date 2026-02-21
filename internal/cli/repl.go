@@ -1,0 +1,346 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/fatih/color"
+	"github.com/meain/esa/internal/agent"
+	"github.com/meain/esa/internal/conversation"
+	"github.com/meain/esa/internal/options"
+	"github.com/meain/esa/internal/utils"
+)
+
+// runReplMode starts the REPL (Read-Eval-Print Loop) mode
+func runReplMode(opts *options.CLIOptions, args []string) error {
+	// TODO: Make progress work in REPL (will have to newline)
+	opts.HideProgress = true // Hide progress in REPL mode
+
+	// Handle agent selection with + prefix in the initial query
+	initialQuery := strings.Join(args, " ")
+	if strings.HasPrefix(initialQuery, "+") {
+		opts.CommandStr = initialQuery
+		parseAgentCommand(opts)
+		initialQuery = opts.CommandStr
+	}
+
+	// Initialize application
+	app, err := conversation.NewApplication(opts)
+	if err != nil {
+		return fmt.Errorf("failed to initialize application: %v", err)
+	}
+
+	// Start MCP servers if configured
+	if len(app.Agent().MCPServers) > 0 {
+		ctx := context.Background()
+		if err := app.StartMCPServers(ctx); err != nil {
+			return fmt.Errorf("failed to start MCP servers: %v", err)
+		}
+
+		defer app.StopMCPServers()
+		app.DebugPrint("MCP Servers", fmt.Sprintf("Started %d MCP servers", len(app.Agent().MCPServers)))
+	}
+
+	prompt, err := app.GetSystemPrompt()
+	if err != nil {
+		return fmt.Errorf("error processing system prompt: %v", err)
+	}
+
+	app.EnsureSystemMessage(prompt)
+
+	// Debug prints before starting communication
+	if msgs := app.Messages(); len(msgs) > 0 {
+		app.DebugPrint("System Message", msgs[0].Content)
+	}
+
+	cyan := color.New(color.FgCyan).SprintFunc()
+	green := color.New(color.FgGreen).SprintFunc()
+	red := color.New(color.FgRed).SprintFunc()
+
+	fmt.Fprintf(
+		os.Stderr,
+		"%s %s\n\n",
+		cyan("[REPL]"),
+		strings.Join([]string{
+			"Starting interactive mode",
+			"- '/exit' or '/quit' to end the session",
+			"- '/help' for available commands",
+			"- Use /editor command for multi line input",
+		}, "\n"),
+	)
+	// Handle initial query if provided
+	if initialQuery != "" {
+		fmt.Fprintf(os.Stderr, "%s %s\n", green("you>"), initialQuery)
+		app.AddMessage("user", initialQuery)
+
+		fmt.Fprintf(os.Stderr, "\n%s ", red("esa>"))
+		app.RunConversationLoop(*opts)
+	}
+
+	// Main REPL loop
+	for {
+		fmt.Fprintf(os.Stderr, "%s ", green("you>"))
+
+		// NOTE: Will enable multi when we can do that without double
+		// enter. For now one can use /editor command
+		input, err := utils.ReadUserInput("", false)
+		if err != nil {
+			if err == io.EOF {
+				fmt.Fprintf(os.Stderr, "\n%s %s\n", cyan("[REPL]"), "Goodbye!")
+				break
+			}
+			return fmt.Errorf("error reading input: %v", err)
+		}
+
+		input = strings.TrimSpace(input)
+		if input == "/exit" || input == "/quit" || input == "" {
+			fmt.Fprintf(os.Stderr, "%s %s\n", cyan("[REPL]"), "Goodbye!")
+			break
+		}
+
+		// Handle REPL commands
+		if strings.HasPrefix(input, "/") {
+			if handleReplCommand(input, app, opts) {
+				continue
+			}
+		}
+
+		fmt.Fprintf(os.Stderr, "%s ", red("esa>"))
+		app.AddMessage("user", input)
+
+		app.RunConversationLoop(*opts)
+	}
+
+	return nil
+}
+
+// handleReplCommand handles special REPL commands
+// Returns true if the command was handled (and should continue REPL loop)
+func handleReplCommand(input string, app *conversation.Application, opts *options.CLIOptions) bool {
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return false
+	}
+
+	command := parts[0]
+	args := parts[1:]
+
+	switch command {
+	case "/help":
+		return handleHelpCommand()
+	case "/config":
+		return handleConfigCommand(app)
+	case "/model":
+		return handleModelCommand(args, app, opts)
+	case "/agent":
+		return handleAgentCommand(args, app, opts)
+	case "/editor":
+		return handleEditorCommand(app, opts)
+	default:
+		return handleUnknownCommand(command)
+	}
+}
+
+func handleHelpCommand() bool {
+	cyan := color.New(color.FgCyan).SprintFunc()
+	green := color.New(color.FgGreen).SprintFunc()
+
+	fmt.Fprintf(os.Stderr, "%s %s\n", cyan("[REPL]"), "Available commands:")
+	fmt.Fprintf(os.Stderr, "  %s - Exit the session\n", green("/exit, /quit"))
+	fmt.Fprintf(os.Stderr, "  %s - Show this help message\n", green("/help"))
+	fmt.Fprintf(os.Stderr, "  %s - Show current configuration\n", green("/config"))
+	fmt.Fprintf(os.Stderr, "  %s - Show or set model (e.g., /model openai/gpt-4)\n", green("/model <provider/model>"))
+	fmt.Fprintf(os.Stderr, "  %s - Show or set agent (e.g., /agent +k8s, /agent myagent)\n", green("/agent <agent>"))
+	fmt.Fprintf(os.Stderr, "  %s - Open the default editor\n", green("/editor"))
+	return true
+}
+
+func handleConfigCommand(app *conversation.Application) bool {
+	cyan := color.New(color.FgCyan).SprintFunc()
+	labelStyle := color.New(color.FgHiCyan, color.Bold).SprintFunc()
+
+	fmt.Fprintf(os.Stderr, "%s %s\n", cyan("[REPL]"), "Current configuration:")
+
+	provider, model, info := app.ParseModel()
+	askLevel := app.GetEffectiveAskLevel()
+
+	fmt.Fprintf(os.Stderr, "%s %s/%s\n", labelStyle("Current Model:"), provider, model)
+	fmt.Fprintf(os.Stderr, "%s %s\n", labelStyle("Base URL:"), info.BaseURL)
+	fmt.Fprintf(os.Stderr, "%s %s\n", labelStyle("API Key Env:"), info.APIKeyEnvar)
+	fmt.Fprintf(os.Stderr, "%s %s\n", labelStyle("Ask Level:"), askLevel)
+	fmt.Fprintf(os.Stderr, "%s %v\n", labelStyle("Debug Mode:"), app.DebugEnabled())
+
+	return true
+}
+
+func handleModelCommand(args []string, app *conversation.Application, opts *options.CLIOptions) bool {
+	cyan := color.New(color.FgCyan).SprintFunc()
+
+	if len(args) == 0 {
+		provider, model, _ := app.ParseModel()
+		fmt.Fprintf(os.Stderr, "%s %s: %s/%s\n", cyan("[REPL]"), "Current model", provider, model)
+		return true
+	}
+
+	if err := validateAndSetModel(app, opts, args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.New(color.FgRed).Sprint("[ERROR]"), err.Error())
+		return true
+	}
+
+	provider, model, _ := app.ParseModel()
+	fmt.Fprintf(os.Stderr, "%s %s: %s/%s\n", cyan("[REPL]"), "Model updated to", provider, model)
+	return true
+}
+
+func handleAgentCommand(args []string, app *conversation.Application, opts *options.CLIOptions) bool {
+	cyan := color.New(color.FgCyan).SprintFunc()
+	green := color.New(color.FgGreen).SprintFunc()
+
+	if len(args) == 0 {
+		// Show current agent information
+		fmt.Fprintf(os.Stderr, "%s %s:\n", cyan("[REPL]"), "Current agent")
+		printDetailedAgentInfo(app.Agent(), app.AgentPath())
+
+		return true
+	}
+
+	agentStr := args[0]
+	if err := validateAndSetAgent(app, opts, agentStr); err != nil {
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.New(color.FgRed).Sprint("[ERROR]"), err.Error())
+		return true
+	}
+
+	// Show confirmation of the switch
+	agentName := app.Agent().Name
+	if agentName == "" {
+		agentName = agentStr
+	}
+	fmt.Fprintf(os.Stderr, "%s %s: %s\n", cyan("[REPL]"), "Agent switched to", green(agentName))
+	return true
+}
+
+// handleEditorCommand handles the /editor command to open the default text editor
+func handleEditorCommand(app *conversation.Application, opts *options.CLIOptions) bool {
+	cyan := color.New(color.FgCyan).SprintFunc()
+	red := color.New(color.FgRed).SprintFunc()
+
+	// Get editor from environment variable or default to nano
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "nano"
+	}
+
+	// Create a temporary file
+	tmpFile, err := os.CreateTemp("", "esa_prompt_*.txt")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to create temporary file: %v\n", red("[ERROR]"), err)
+		return true
+	}
+	defer os.Remove(tmpFile.Name()) // Clean up
+
+	// Close the file so the editor can open it
+	tmpFile.Close()
+
+	fmt.Fprintf(os.Stderr, "%s Opening editor: %s\n", cyan("[REPL]"), editor)
+
+	// Open the editor
+	cmd := exec.Command(editor, tmpFile.Name())
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to run editor: %v\n", red("[ERROR]"), err)
+		return true
+	}
+
+	// Read the content back
+	content, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to read temporary file: %v\n", red("[ERROR]"), err)
+		return true
+	}
+
+	// Process the content
+	finalContent := strings.TrimSpace(string(content))
+
+	if finalContent == "" {
+		fmt.Fprintf(os.Stderr, "%s No content entered, canceling.\n", cyan("[REPL]"))
+		return true
+	}
+
+	// Add the message and run the conversation
+	fmt.Fprintf(os.Stderr, "%s Prompt entered via editor\n", cyan("[REPL]"))
+	app.AddMessage("user", finalContent)
+
+	fmt.Fprintf(os.Stderr, "%s %s\n", color.New(color.FgGreen).SprintFunc()("you>"), finalContent)
+	fmt.Fprintf(os.Stderr, "%s ", color.New(color.FgRed).SprintFunc()("esa>"))
+	app.RunConversationLoop(*opts)
+
+	return true
+}
+
+func handleUnknownCommand(command string) bool {
+	if strings.HasPrefix(command, "/") {
+		fmt.Fprintf(os.Stderr, "%s %s '%s'. Type /help for available commands.\n",
+			color.New(color.FgRed).Sprint("[ERROR]"), "Unknown command", command)
+		return true
+	}
+	return false
+}
+
+// validateAndSetModel validates a model string (including aliases) and sets it if valid
+func validateAndSetModel(app *conversation.Application, opts *options.CLIOptions, modelStr string) error {
+	opts.Model = modelStr
+
+	if err := app.SetModel(modelStr); err != nil {
+		return fmt.Errorf("failed to set model '%s': %v", modelStr, err)
+	}
+	return nil
+}
+
+// validateAndSetAgent validates an agent string and sets it if valid
+func validateAndSetAgent(app *conversation.Application, opts *options.CLIOptions, agentStr string) error {
+	// Parse the agent string to determine the agent name and path
+	agentName, agentPath := agent.ParseAgentString(agentStr)
+
+	// Create a temporary CLIOptions to use with loadConfiguration
+	tempOpts := &options.CLIOptions{
+		AgentName: agentName,
+		AgentPath: agentPath,
+	}
+
+	// Load the agent using the existing loadConfiguration function
+	agentCfg, err := agent.LoadConfiguration(tempOpts)
+	if err != nil {
+		return fmt.Errorf("failed to load agent '%s': %v", agentStr, err)
+	}
+
+	// Update the application and options
+	app.SetAgent(agentCfg, tempOpts.AgentPath)
+	opts.AgentPath = tempOpts.AgentPath
+	if agentName != "" {
+		opts.AgentName = agentName
+	}
+
+	// Restart MCP servers if needed
+	if len(agentCfg.MCPServers) > 0 {
+		// Stop existing servers
+		app.StopMCPServers()
+
+		// Start new servers
+		ctx := context.Background()
+		if err := app.StartMCPServers(ctx); err != nil {
+			return fmt.Errorf("failed to start MCP servers for agent: %v", err)
+		}
+	} else {
+		// Stop all servers if the new agent doesn't have any
+		app.StopMCPServers()
+	}
+
+	return nil
+}
