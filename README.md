@@ -10,7 +10,7 @@
 
 ## 🍴 About This Fork
 
-This fork plans to **socialize** ESA by transforming it from a powerful personal tool into a community-driven ecosystem. Today, ESA's strength lies in its extensible agent system—but discovering, sharing, and building upon other people's agents requires manual copying of TOML files and word-of-mouth sharing. This fork introduces a **Hub** architecture that lets users publish, discover, and install agents with a single command, turning isolated personal workflows into a collective library of automation.
+ESA's strength lies in its extensible agent system—but discovering, sharing, and building upon other people's agents requires manual copying of TOML files and word-of-mouth sharing. This fork introduces a **Hub** architecture that lets users publish, discover, and install agents with a single command, turning isolated personal workflows into a collective library of automation.
 
 The vision: when someone solves a problem with an ESA agent—whether it's managing Kubernetes clusters, automating JIRA workflows, or generating git commits—that solution becomes instantly available to everyone. Agents can inherit from and extend other agents, creating composable building blocks. The community benefits compound as each new agent builds on what came before.
 

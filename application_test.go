@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -336,6 +337,167 @@ func TestEmptyApiKeyAcceptance(t *testing.T) {
 				t.Errorf("Expected error message %q, got %q", tt.errorDescription, err.Error())
 			}
 		})
+	}
+}
+
+func TestFilterThinkTags(t *testing.T) {
+	tests := []struct {
+		name   string
+		chunks []string
+		want   string
+	}{
+		{
+			name:   "Empty think block",
+			chunks: []string{"<think>\n</think>\nHello!"},
+			want:   "Hello!",
+		},
+		{
+			name:   "Think block with content",
+			chunks: []string{"<think>\nI should greet the user.\n</think>\nHello!"},
+			want:   "Hello!",
+		},
+		{
+			name:   "No think block",
+			chunks: []string{"Hello, world!"},
+			want:   "Hello, world!",
+		},
+		{
+			name:   "Think tag split across chunks",
+			chunks: []string{"<thi", "nk>\nthinking...\n</thi", "nk>\nHello!"},
+			want:   "Hello!",
+		},
+		{
+			name:   "Content before and after think block",
+			chunks: []string{"Before ", "<think>inner</think>", " After"},
+			want:   "Before  After",
+		},
+		{
+			name:   "Multiple think blocks",
+			chunks: []string{"A<think>x</think>B<think>y</think>C"},
+			want:   "ABC",
+		},
+		{
+			name:   "Think block streamed char by char",
+			chunks: []string{"<", "t", "h", "i", "n", "k", ">", "x", "<", "/", "t", "h", "i", "n", "k", ">", "Hi"},
+			want:   "Hi",
+		},
+		{
+			name:   "Partial open tag that is not a think tag",
+			chunks: []string{"<the", "n> done"},
+			want:   "<then> done",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf strings.Builder
+			inThink := false
+			var thinkBuf strings.Builder
+			var result strings.Builder
+
+			for _, chunk := range tt.chunks {
+				out := filterThinkTags(chunk, &inThink, &thinkBuf)
+				result.WriteString(out)
+			}
+
+			// Flush remaining buffer (same logic as handleStreamResponse)
+			if thinkBuf.Len() > 0 && !inThink {
+				result.WriteString(thinkBuf.String())
+			}
+			_ = buf
+
+			if got := result.String(); got != tt.want {
+				t.Errorf("filterThinkTags() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestShouldThink(t *testing.T) {
+	tests := []struct {
+		name         string
+		cliThink     *bool  // app.thinkEnabled
+		agentThink   *bool  // agent.Think
+		want         bool
+	}{
+		{
+			name:     "Default: think enabled when nothing set",
+			want:     true,
+		},
+		{
+			name:       "Agent sets think=false",
+			agentThink: boolPtr(false),
+			want:       false,
+		},
+		{
+			name:       "Agent sets think=true",
+			agentThink: boolPtr(true),
+			want:       true,
+		},
+		{
+			name:     "CLI --think overrides agent think=false",
+			cliThink: boolPtr(true),
+			agentThink: boolPtr(false),
+			want:     true,
+		},
+		{
+			name:     "CLI --no-think overrides agent think=true",
+			cliThink: boolPtr(false),
+			agentThink: boolPtr(true),
+			want:     false,
+		},
+		{
+			name:     "CLI --no-think with no agent config",
+			cliThink: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "CLI --think with no agent config",
+			cliThink: boolPtr(true),
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := &Application{
+				agent:        Agent{Think: tt.agentThink},
+				thinkEnabled: tt.cliThink,
+			}
+			if got := app.shouldThink(); got != tt.want {
+				t.Errorf("shouldThink() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNoThinkAppendsToSystemPrompt(t *testing.T) {
+	app := &Application{
+		agent:        Agent{SystemPrompt: "You are helpful."},
+		thinkEnabled: boolPtr(false),
+	}
+	prompt, err := app.getSystemPrompt()
+	if err != nil {
+		t.Fatalf("getSystemPrompt error: %v", err)
+	}
+	if !strings.HasSuffix(prompt, "\n/no_think") {
+		t.Errorf("Expected prompt to end with /no_think, got: %q", prompt)
+	}
+}
+
+func TestThinkDoesNotAppendToSystemPrompt(t *testing.T) {
+	app := &Application{
+		agent:        Agent{SystemPrompt: "You are helpful."},
+		thinkEnabled: boolPtr(true),
+	}
+	prompt, err := app.getSystemPrompt()
+	if err != nil {
+		t.Fatalf("getSystemPrompt error: %v", err)
+	}
+	if strings.Contains(prompt, "/no_think") {
+		t.Errorf("Expected prompt to NOT contain /no_think, got: %q", prompt)
 	}
 }
 

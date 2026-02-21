@@ -69,6 +69,22 @@ func TestParseAgentString(t *testing.T) {
 				return path != "" && path != "builtin:custom"
 			},
 		},
+		{
+			name:       "Versioned builtin",
+			input:      "+coder@v1.2.3",
+			expectName: "coder",
+			expectPathFunc: func(path string) bool {
+				return path == "builtin:coder"
+			},
+		},
+		{
+			name:       "Versioned user agent",
+			input:      "custom@1.2.3",
+			expectName: "custom",
+			expectPathFunc: func(path string) bool {
+				return path != "" && path != "builtin:custom"
+			},
+		},
 	}
 
 	for _, tt := range tests {

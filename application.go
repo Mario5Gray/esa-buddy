@@ -25,6 +25,13 @@ const (
 	maxRetryDelay        = 1 * time.Minute
 )
 
+const (
+	defaultCompactionMaxMessages = 40
+	defaultCompactionKeepLast    = 12
+	defaultCompactionMaxChars    = 20000
+	compactionSummaryPrefix      = "Conversation summary (compacted):\n"
+)
+
 // Common error messages
 const (
 	errFailedToLoadConfig    = "failed to load global config"
@@ -53,6 +60,11 @@ type Application struct {
 	mcpManager      *MCPManager
 	cliAskLevel     string
 	prettyOutput    bool
+	thinkEnabled    *bool // nil = use agent default, true/false = CLI override
+	compactPrompt   bool
+	compactMaxMsgs  int
+	compactKeepLast int
+	compactMaxChars int
 }
 
 // providerInfo contains provider-specific configuration
@@ -70,6 +82,32 @@ func (app *Application) parseModel() (provider string, model string, info provid
 	return parseModel(app.modelFlag, app.agent, app.config)
 }
 
+func normalizeCompactionSettings(settings Settings) (enabled bool, maxMsgs int, keepLast int, maxChars int) {
+	enabled = settings.PromptCompaction
+	maxMsgs = settings.CompactionMaxMessages
+	keepLast = settings.CompactionKeepLast
+	maxChars = settings.CompactionMaxChars
+
+	if maxMsgs <= 0 {
+		maxMsgs = defaultCompactionMaxMessages
+	}
+	if keepLast <= 0 {
+		keepLast = defaultCompactionKeepLast
+	}
+	if maxChars <= 0 {
+		maxChars = defaultCompactionMaxChars
+	}
+
+	if keepLast >= maxMsgs {
+		keepLast = maxMsgs / 2
+		if keepLast < 1 {
+			keepLast = 1
+		}
+	}
+
+	return enabled, maxMsgs, keepLast, maxChars
+}
+
 // isRateLimitError checks if the error is a rate limit error (429)
 func isRateLimitError(err error) bool {
 	if err == nil {
@@ -85,6 +123,10 @@ func isRateLimitError(err error) bool {
 func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*openai.ChatCompletionStream, error) {
 	var stream *openai.ChatCompletionStream
 	var err error
+
+	if err := app.compactMessagesIfNeeded(); err != nil {
+		app.debugPrint("Compaction", fmt.Sprintf("Compaction skipped: %v", err))
+	}
 
 	// Retry logic for rate limiting
 	for attempt := 0; attempt <= maxRetryCount; attempt++ {
@@ -262,22 +304,38 @@ func NewApplication(opts *CLIOptions) (*Application, error) {
 
 	showCommands := opts.ShowCommands || config.Settings.ShowCommands
 	showToolCalls := opts.ShowToolCalls || config.Settings.ShowToolCalls
+	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars := normalizeCompactionSettings(config.Settings)
 
 	// Initialize MCP manager
 	mcpManager := NewMCPManager()
 
+	// Resolve think flag: CLI flags override agent config
+	var thinkEnabled *bool
+	if opts.Think {
+		t := true
+		thinkEnabled = &t
+	} else if opts.NoThink {
+		f := false
+		thinkEnabled = &f
+	}
+
 	app := &Application{
-		agent:        agent,
-		agentPath:    opts.AgentPath,
-		client:       client,
-		historyFile:  historyFile,
-		messages:     messages,
-		usage:        usage,
-		modelFlag:    opts.Model,
-		config:       config,
-		mcpManager:   mcpManager,
-		cliAskLevel:  opts.AskLevel,
-		prettyOutput: opts.Pretty,
+		agent:           agent,
+		agentPath:       opts.AgentPath,
+		client:          client,
+		historyFile:     historyFile,
+		messages:        messages,
+		usage:           usage,
+		modelFlag:       opts.Model,
+		config:          config,
+		mcpManager:      mcpManager,
+		cliAskLevel:     opts.AskLevel,
+		prettyOutput:    opts.Pretty,
+		thinkEnabled:    thinkEnabled,
+		compactPrompt:   compactPrompt,
+		compactMaxMsgs:  compactMaxMsgs,
+		compactKeepLast: compactKeepLast,
+		compactMaxChars: compactMaxChars,
 
 		debug:         opts.DebugMode,
 		showCommands:  showCommands && !showToolCalls && !opts.DebugMode,
@@ -433,12 +491,82 @@ func (app *Application) getEffectiveAskLevel() string {
 	return effectiveLevel
 }
 
+// filterThinkTags strips <think>...</think> blocks from streamed content.
+// It handles tags split across chunk boundaries using a simple state machine.
+// inThink tracks whether we're inside a think block; buf accumulates partial
+// tag matches that may span chunks.
+func filterThinkTags(chunk string, inThink *bool, buf *strings.Builder) string {
+	const openTag = "<think>"
+	const closeTag = "</think>"
+
+	var out strings.Builder
+	buf.WriteString(chunk)
+	s := buf.String()
+	buf.Reset()
+
+	for len(s) > 0 {
+		if *inThink {
+			// Look for closing tag
+			idx := strings.Index(s, closeTag)
+			if idx >= 0 {
+				*inThink = false
+				s = s[idx+len(closeTag):]
+				// Skip leading newline after closing tag
+				if len(s) > 0 && s[0] == '\n' {
+					s = s[1:]
+				}
+			} else {
+				// Check if the end of s could be a partial </think>
+				for i := 1; i < len(closeTag) && i <= len(s); i++ {
+					if strings.HasSuffix(s, closeTag[:i]) {
+						buf.WriteString(s[len(s)-i:])
+						s = s[:len(s)-i]
+						break
+					}
+				}
+				// Discard everything before the potential partial match (it's inside think)
+				s = ""
+			}
+		} else {
+			// Look for opening tag
+			idx := strings.Index(s, openTag)
+			if idx >= 0 {
+				out.WriteString(s[:idx])
+				*inThink = true
+				s = s[idx+len(openTag):]
+			} else {
+				// Check if the end of s could be a partial <think>
+				buffered := false
+				for i := 1; i < len(openTag) && i <= len(s); i++ {
+					if strings.HasSuffix(s, openTag[:i]) {
+						out.WriteString(s[:len(s)-i])
+						buf.WriteString(s[len(s)-i:])
+						buffered = true
+						break
+					}
+				}
+				if !buffered {
+					out.WriteString(s)
+				}
+				s = ""
+			}
+		}
+	}
+
+	return out.String()
+}
+
 func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream) openai.ChatCompletionMessage {
 	defer stream.Close()
 
 	var assistantMsg openai.ChatCompletionMessage
 	var fullContent strings.Builder
 	hasContent := false
+
+	// State machine for filtering <think>...</think> blocks from streamed content.
+	// Chunks may split tags arbitrarily, so we buffer partial matches.
+	inThink := false
+	var thinkBuf strings.Builder
 
 	for {
 		response, err := stream.Recv()
@@ -478,12 +606,27 @@ func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream
 
 			content := response.Choices[0].Delta.Content
 			if content != "" {
-				hasContent = true
-				if !app.prettyOutput {
-					fmt.Print(content)
+				content = filterThinkTags(content, &inThink, &thinkBuf)
+				if content != "" {
+					hasContent = true
+					if !app.prettyOutput {
+						fmt.Print(content)
+					}
+					fullContent.WriteString(content)
 				}
-				fullContent.WriteString(content)
 			}
+		}
+	}
+
+	// Flush any remaining buffered content that turned out not to be a think tag
+	if thinkBuf.Len() > 0 && !inThink {
+		remaining := thinkBuf.String()
+		if remaining != "" {
+			hasContent = true
+			if !app.prettyOutput {
+				fmt.Print(remaining)
+			}
+			fullContent.WriteString(remaining)
 		}
 	}
 
@@ -724,13 +867,220 @@ func (app *Application) handleMCPToolCall(toolCall openai.ToolCall, opts CLIOpti
 	})
 }
 
-func (app *Application) getSystemPrompt() (string, error) {
-	if app.agent.SystemPrompt != "" {
-		return app.processSystemPrompt(app.agent.SystemPrompt)
+// shouldThink resolves whether thinking is enabled for this request.
+// Priority: CLI flag > agent config > default (true, let model decide).
+func (app *Application) shouldThink() bool {
+	if app.thinkEnabled != nil {
+		return *app.thinkEnabled
 	}
-	return app.processSystemPrompt(systemPrompt)
+	if app.agent.Think != nil {
+		return *app.agent.Think
+	}
+	return true // default: let model think
+}
+
+func (app *Application) getSystemPrompt() (string, error) {
+	var prompt string
+	var err error
+	if app.agent.SystemPrompt != "" {
+		prompt, err = app.processSystemPrompt(app.agent.SystemPrompt)
+	} else {
+		prompt, err = app.processSystemPrompt(systemPrompt)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	if !app.shouldThink() {
+		prompt += "\n/no_think"
+	}
+
+	return prompt, nil
 }
 
 func (app *Application) processSystemPrompt(prompt string) (string, error) {
 	return processShellBlocks(prompt)
+}
+
+func (app *Application) compactMessagesIfNeeded() error {
+	if !app.compactPrompt {
+		return nil
+	}
+
+	if len(app.messages) <= 1 {
+		return nil
+	}
+
+	if len(app.messages) <= app.compactMaxMsgs && messagesSize(app.messages) <= app.compactMaxChars {
+		return nil
+	}
+
+	systemMsg, toSummarize, tail, existingSummary, ok := splitMessagesForCompaction(app.messages, app.compactKeepLast)
+	if !ok || len(toSummarize) == 0 {
+		return nil
+	}
+
+	summaryInput := buildCompactionInput(existingSummary, toSummarize)
+	summary, err := app.summarizeConversation(summaryInput)
+	if err != nil {
+		return err
+	}
+
+	summaryMsg := openai.ChatCompletionMessage{
+		Role:    "system",
+		Content: compactionSummaryPrefix + strings.TrimSpace(summary),
+	}
+
+	app.messages = append([]openai.ChatCompletionMessage{systemMsg, summaryMsg}, tail...)
+	app.debugPrint("Compaction", fmt.Sprintf("Compacted %d messages into summary", len(toSummarize)))
+	return nil
+}
+
+func (app *Application) summarizeConversation(input string) (string, error) {
+	ctx := context.Background()
+	system := "Summarize the conversation for future context. Preserve decisions, constraints, file paths, commands, names, and open tasks. Be concise and factual."
+	req := openai.ChatCompletionRequest{
+		Model: app.getModel(),
+		Messages: []openai.ChatCompletionMessage{
+			{Role: "system", Content: system},
+			{Role: "user", Content: input},
+		},
+		Temperature: 0.2,
+	}
+
+	resp, err := app.client.CreateChatCompletion(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("empty summary response")
+	}
+	return resp.Choices[0].Message.Content, nil
+}
+
+func splitMessagesForCompaction(messages []openai.ChatCompletionMessage, keepLast int) (system openai.ChatCompletionMessage, toSummarize []openai.ChatCompletionMessage, tail []openai.ChatCompletionMessage, existingSummary string, ok bool) {
+	if len(messages) == 0 {
+		return system, nil, nil, "", false
+	}
+	if messages[0].Role != "system" {
+		return system, nil, nil, "", false
+	}
+
+	system = messages[0]
+
+	var rest []openai.ChatCompletionMessage
+	for i := 1; i < len(messages); i++ {
+		if isCompactionSummaryMessage(messages[i]) {
+			existingSummary = strings.TrimSpace(strings.TrimPrefix(messages[i].Content, compactionSummaryPrefix))
+			continue
+		}
+		rest = append(rest, messages[i])
+	}
+
+	if len(rest) <= keepLast {
+		return system, nil, rest, existingSummary, true
+	}
+
+	cut := len(rest) - keepLast
+	toSummarize = rest[:cut]
+	tail = rest[cut:]
+	return system, toSummarize, tail, existingSummary, true
+}
+
+func isCompactionSummaryMessage(msg openai.ChatCompletionMessage) bool {
+	return msg.Role == "system" && strings.HasPrefix(msg.Content, compactionSummaryPrefix)
+}
+
+func buildCompactionInput(existingSummary string, messages []openai.ChatCompletionMessage) string {
+	var b strings.Builder
+	if existingSummary != "" {
+		b.WriteString("Previous summary:\n")
+		b.WriteString(existingSummary)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("Conversation to summarize:\n")
+	for _, msg := range messages {
+		line := formatMessageForSummary(msg)
+		if line == "" {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatMessageForSummary(msg openai.ChatCompletionMessage) string {
+	role := strings.ToUpper(msg.Role)
+
+	var b strings.Builder
+	b.WriteString("[")
+	b.WriteString(role)
+	b.WriteString("] ")
+
+	if msg.Name != "" {
+		b.WriteString(msg.Name)
+		b.WriteString(": ")
+	}
+
+	if msg.Content != "" {
+		b.WriteString(msg.Content)
+	}
+
+	if msg.FunctionCall != nil {
+		b.WriteString(" FunctionCall: ")
+		b.WriteString(msg.FunctionCall.Name)
+		if msg.FunctionCall.Arguments != "" {
+			b.WriteString(" ")
+			b.WriteString(msg.FunctionCall.Arguments)
+		}
+	}
+
+	if len(msg.ToolCalls) > 0 {
+		if msg.Content != "" {
+			b.WriteString(" ")
+		}
+		b.WriteString("ToolCalls: ")
+		for i, call := range msg.ToolCalls {
+			if i > 0 {
+				b.WriteString("; ")
+			}
+			b.WriteString(call.Function.Name)
+			if call.Function.Arguments != "" {
+				b.WriteString(" ")
+				b.WriteString(call.Function.Arguments)
+			}
+		}
+	}
+
+	if msg.Role == "tool" && msg.ToolCallID != "" {
+		if msg.Content != "" {
+			b.WriteString(" ")
+		}
+		b.WriteString("(tool_call_id=")
+		b.WriteString(msg.ToolCallID)
+		b.WriteString(")")
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+func messagesSize(messages []openai.ChatCompletionMessage) int {
+	total := 0
+	for _, msg := range messages {
+		total += messageSize(msg)
+	}
+	return total
+}
+
+func messageSize(msg openai.ChatCompletionMessage) int {
+	size := len(msg.Role) + len(msg.Content) + len(msg.Name) + len(msg.ToolCallID)
+	if msg.FunctionCall != nil {
+		size += len(msg.FunctionCall.Name) + len(msg.FunctionCall.Arguments)
+	}
+	for _, call := range msg.ToolCalls {
+		size += len(call.Function.Name) + len(call.Function.Arguments)
+		size += len(call.ID) + len(call.Type)
+	}
+	return size
 }

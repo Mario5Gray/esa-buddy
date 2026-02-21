@@ -12,9 +12,13 @@ const DefaultConfigPath = "~/.config/esa/config.toml"
 
 // Settings represents global settings that can be overridden by CLI flags
 type Settings struct {
-	ShowCommands  bool   `toml:"show_commands"`
-	ShowToolCalls bool   `toml:"show_tool_calls"`
-	DefaultModel  string `toml:"default_model"`
+	ShowCommands          bool   `toml:"show_commands"`
+	ShowToolCalls         bool   `toml:"show_tool_calls"`
+	DefaultModel          string `toml:"default_model"`
+	PromptCompaction      bool   `toml:"prompt_compaction"`
+	CompactionMaxMessages int    `toml:"compaction_max_messages"`
+	CompactionKeepLast    int    `toml:"compaction_keep_last"`
+	CompactionMaxChars    int    `toml:"compaction_max_chars"`
 }
 
 // Config represents the global configuration structure
@@ -56,7 +60,15 @@ func LoadConfig(configPath string) (*Config, error) {
 		defaultConfig := Config{
 			ModelAliases: map[string]string{},
 			Providers:    map[string]ProviderConfig{},
-			Settings:     Settings{ShowCommands: false, ShowToolCalls: false, DefaultModel: ""},
+			Settings: Settings{
+				ShowCommands:          false,
+				ShowToolCalls:         false,
+				DefaultModel:          "",
+				PromptCompaction:      true,
+				CompactionMaxMessages: 40,
+				CompactionKeepLast:    12,
+				CompactionMaxChars:    20000,
+			},
 		}
 		file, err := os.Create(configPath)
 		if err != nil {

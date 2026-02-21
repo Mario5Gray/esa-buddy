@@ -8,15 +8,24 @@
 - [ ] Optional: estimate costs per provider/model
 
 ### 2. Agent Inheritance
-- [ ] Define `extends` field in agent TOML
-- [ ] Implement function merging (child overrides parent)
-- [ ] Implement system prompt composition
-- [ ] Decide: flatten at load time vs dynamic resolution
+- [x] Define `extends` field in agent TOML
+- [x] Implement function merging (child overrides parent)
+- [x] Implement system prompt composition
+- [x] flatten at load time
 
 ### 3. Agent Versioning
-- [ ] Define version field in agent TOML
-- [ ] Version format: semver (`1.0.0`)
-- [ ] Support version pinning syntax (`agent@v1.2`)
+- [x] Define version field in agent TOML
+- [x] Version format: semver (`1.0.0`)
+- [x] Support version pinning syntax (`agent@v1.2`)
+
+### 4. Prompt Compaction
+- [x] Auto-summarize older messages into a system summary
+- [ ] Add CLI flags to enable/disable compaction
+- [ ] Track compaction thresholds per conversation (saved in history)
+- [ ] Avoid summarizing tool outputs verbatim; keep key results only
+- [ ] Summarize with a dedicated model (configurable)
+- [ ] Redaction/PII policy for summaries
+- [ ] Optional: store summary in history metadata instead of system message
 
 ## Phase 2: Hub Architecture
 

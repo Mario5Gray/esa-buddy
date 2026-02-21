@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -10,12 +12,15 @@ import (
 type Agent struct {
 	Name           string                     `toml:"name"`
 	Description    string                     `toml:"description"`
+	Extends        string                     `toml:"extends"`
+	Version        string                     `toml:"version"`
 	Functions      []FunctionConfig           `toml:"functions"`
 	MCPServers     map[string]MCPServerConfig `toml:"mcp_servers"`
 	Ask            string                     `toml:"ask"`
 	SystemPrompt   string                     `toml:"system_prompt"`
 	InitialMessage string                     `toml:"initial_message"`
 	DefaultModel   string                     `toml:"default_model"`
+	Think          *bool                      `toml:"think,omitempty"`
 }
 
 // MCPServerConfig represents the configuration for an MCP server
@@ -49,10 +54,10 @@ type ParameterConfig struct {
 }
 
 func loadAgent(agentPath string) (Agent, error) {
-	var agent Agent
-	_, err := toml.DecodeFile(agentPath, &agent)
+	visited := make(map[string]bool)
+	agent, err := loadAgentFromFile(agentPath, visited, 0)
 	if err != nil {
-		return agent, err
+		return Agent{}, err
 	}
 
 	return validateAgent(agent)
@@ -62,6 +67,10 @@ func loadAgent(agentPath string) (Agent, error) {
 // to ensure all required fields are present and properly formatted.
 func validateAgent(agent Agent) (Agent, error) {
 	var err error
+
+	if agent.Version != "" && !isValidSemver(agent.Version) {
+		return agent, fmt.Errorf("agent '%s' has invalid version: %q", agent.Name, agent.Version)
+	}
 
 	// Validate each function configuration
 	for i, fc := range agent.Functions {
@@ -120,27 +129,251 @@ func validateAgent(agent Agent) (Agent, error) {
 }
 
 func loadConfiguration(opts *CLIOptions) (Agent, error) {
-	if conf, exists := builtinAgents[opts.AgentName]; exists {
-		var agent Agent
-		if _, err := toml.Decode(conf, &agent); err != nil {
-			return Agent{}, fmt.Errorf("error loading embedded '%s' agent config: %v", opts.AgentName, err)
+	if _, exists := builtinAgents[opts.AgentName]; exists {
+		visited := make(map[string]bool)
+		agent, err := loadAgentFromBuiltin(opts.AgentName, visited, 0)
+		if err != nil {
+			return Agent{}, err
 		}
-		return agent, nil
+		return validateAgent(agent)
 	}
 
 	agentPath := expandHomePath(opts.AgentPath)
 	_, err := os.Stat(agentPath)
 	if err != nil {
 		if os.IsNotExist(err) && opts.AgentName == "" && opts.AgentPath == DefaultAgentPath {
-			var agent Agent
-			if _, err := toml.Decode(defaultAgentToml, &agent); err != nil {
-				return Agent{}, fmt.Errorf("error loading embedded new agent config: %v", err)
+			visited := make(map[string]bool)
+			agent, err := loadAgentFromBuiltin("default", visited, 0)
+			if err != nil {
+				return Agent{}, err
 			}
-			return agent, nil
+			return validateAgent(agent)
 		}
 	}
 
 	return loadAgent(agentPath)
+}
+
+const maxExtendsDepth = 20
+
+func loadAgentFromFile(agentPath string, visited map[string]bool, depth int) (Agent, error) {
+	if depth > maxExtendsDepth {
+		return Agent{}, fmt.Errorf("agent inheritance exceeds max depth (%d)", maxExtendsDepth)
+	}
+
+	resolvedPath := expandHomePath(agentPath)
+	if absPath, err := filepath.Abs(resolvedPath); err == nil {
+		resolvedPath = absPath
+	}
+
+	key := "file:" + resolvedPath
+	if visited[key] {
+		return Agent{}, fmt.Errorf("agent inheritance cycle detected at %s", resolvedPath)
+	}
+	visited[key] = true
+	defer delete(visited, key)
+
+	var agent Agent
+	if _, err := toml.DecodeFile(resolvedPath, &agent); err != nil {
+		return Agent{}, err
+	}
+
+	return resolveAgentExtends(agent, resolvedPath, visited, depth)
+}
+
+func loadAgentFromBuiltin(name string, visited map[string]bool, depth int) (Agent, error) {
+	if depth > maxExtendsDepth {
+		return Agent{}, fmt.Errorf("agent inheritance exceeds max depth (%d)", maxExtendsDepth)
+	}
+
+	key := "builtin:" + name
+	if visited[key] {
+		return Agent{}, fmt.Errorf("agent inheritance cycle detected at %s", key)
+	}
+	visited[key] = true
+	defer delete(visited, key)
+
+	conf, exists := builtinAgents[name]
+	if !exists {
+		return Agent{}, fmt.Errorf("unknown builtin agent: %s", name)
+	}
+
+	var agent Agent
+	if _, err := toml.Decode(conf, &agent); err != nil {
+		return Agent{}, fmt.Errorf("error loading embedded '%s' agent config: %v", name, err)
+	}
+
+	return resolveAgentExtends(agent, "", visited, depth)
+}
+
+func resolveAgentExtends(agent Agent, childPath string, visited map[string]bool, depth int) (Agent, error) {
+	if strings.TrimSpace(agent.Extends) == "" {
+		return agent, nil
+	}
+
+	parent, err := loadAgentFromRef(agent.Extends, childPath, visited, depth+1)
+	if err != nil {
+		return Agent{}, err
+	}
+
+	merged := mergeAgents(parent, agent)
+	return merged, nil
+}
+
+func loadAgentFromRef(ref string, childPath string, visited map[string]bool, depth int) (Agent, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return Agent{}, fmt.Errorf("extends reference is empty")
+	}
+
+	ref, _ = splitAgentRefVersion(ref)
+
+	if strings.HasPrefix(ref, "builtin:") {
+		return loadAgentFromBuiltin(strings.TrimPrefix(ref, "builtin:"), visited, depth)
+	}
+
+	if _, exists := builtinAgents[ref]; exists {
+		return loadAgentFromBuiltin(ref, visited, depth)
+	}
+
+	if looksLikePath(ref) {
+		resolvedPath := resolveAgentPath(ref, childPath)
+		return loadAgentFromFile(resolvedPath, visited, depth)
+	}
+
+	userAgentPath := expandHomePath(fmt.Sprintf("%s/%s.toml", DefaultAgentsDir, ref))
+	return loadAgentFromFile(userAgentPath, visited, depth)
+}
+
+func looksLikePath(ref string) bool {
+	return strings.Contains(ref, string(os.PathSeparator)) || strings.HasSuffix(ref, ".toml")
+}
+
+func resolveAgentPath(ref string, childPath string) string {
+	ref = expandHomePath(ref)
+	if filepath.IsAbs(ref) {
+		return ref
+	}
+
+	if childPath != "" {
+		return filepath.Join(filepath.Dir(childPath), ref)
+	}
+
+	if cwd, err := os.Getwd(); err == nil {
+		return filepath.Join(cwd, ref)
+	}
+
+	return ref
+}
+
+func mergeAgents(parent Agent, child Agent) Agent {
+	merged := parent
+
+	if child.Name != "" {
+		merged.Name = child.Name
+	}
+	if child.Description != "" {
+		merged.Description = child.Description
+	}
+	if child.Ask != "" {
+		merged.Ask = child.Ask
+	}
+	if child.InitialMessage != "" {
+		merged.InitialMessage = child.InitialMessage
+	}
+	if child.DefaultModel != "" {
+		merged.DefaultModel = child.DefaultModel
+	}
+	if child.Think != nil {
+		merged.Think = child.Think
+	}
+
+	if child.SystemPrompt != "" {
+		if merged.SystemPrompt != "" {
+			merged.SystemPrompt = merged.SystemPrompt + "\n\n" + child.SystemPrompt
+		} else {
+			merged.SystemPrompt = child.SystemPrompt
+		}
+	}
+
+	merged.Functions = mergeFunctions(parent.Functions, child.Functions)
+	merged.MCPServers = mergeMCPServers(parent.MCPServers, child.MCPServers)
+	merged.Extends = child.Extends
+
+	return merged
+}
+
+func mergeFunctions(parent []FunctionConfig, child []FunctionConfig) []FunctionConfig {
+	if len(parent) == 0 {
+		return append([]FunctionConfig{}, child...)
+	}
+	if len(child) == 0 {
+		return append([]FunctionConfig{}, parent...)
+	}
+
+	merged := append([]FunctionConfig{}, parent...)
+	index := make(map[string]int, len(merged))
+	for i, fn := range merged {
+		if fn.Name != "" {
+			index[fn.Name] = i
+		}
+	}
+
+	for _, fn := range child {
+		if fn.Name != "" {
+			if idx, exists := index[fn.Name]; exists {
+				merged[idx] = fn
+				continue
+			}
+			index[fn.Name] = len(merged)
+		}
+		merged = append(merged, fn)
+	}
+
+	return merged
+}
+
+func mergeMCPServers(parent map[string]MCPServerConfig, child map[string]MCPServerConfig) map[string]MCPServerConfig {
+	if parent == nil && child == nil {
+		return nil
+	}
+
+	merged := make(map[string]MCPServerConfig)
+	for name, cfg := range parent {
+		merged[name] = cfg
+	}
+	for name, cfg := range child {
+		merged[name] = cfg
+	}
+
+	return merged
+}
+
+func isValidSemver(version string) bool {
+	if version == "" {
+		return false
+	}
+	if strings.HasPrefix(version, "v") {
+		return false
+	}
+
+	parts := strings.SplitN(version, "-", 2)
+	core := parts[0]
+	nums := strings.Split(core, ".")
+	if len(nums) != 3 {
+		return false
+	}
+	for _, n := range nums {
+		if n == "" {
+			return false
+		}
+		for _, ch := range n {
+			if ch < '0' || ch > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 const systemPrompt = `You are Esa, a professional assistant capable of performing various tasks. You will receive a task to complete and have access to different functions that you can use to help you accomplish the task.

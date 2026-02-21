@@ -34,6 +34,7 @@ type CLIOptions struct {
 	HideProgress   bool
 	CommandStr     string
 	AgentName      string
+	AgentVersion   string
 	Model          string
 	ConfigPath     string
 	OutputFormat   string // Output format for show-history (text, markdown, json)
@@ -47,6 +48,8 @@ type CLIOptions struct {
 	ShowAll        bool   // Flag for showing both stats and history
 	SystemPrompt   string // System prompt override from CLI
 	Pretty         bool   // Pretty print markdown output using glow
+	Think          bool   // Enable model thinking/chain-of-thought
+	NoThink        bool   // Disable model thinking/chain-of-thought
 }
 
 func createRootCommand() *cobra.Command {
@@ -178,6 +181,8 @@ func createRootCommand() *cobra.Command {
 	rootCmd.Flags().StringVar(&opts.OutputFormat, "output", "text", "Output format for --show-history (text, markdown, json)")
 	rootCmd.Flags().BoolVarP(&opts.Pretty, "pretty", "p", false, "Pretty print markdown output (disables streaming)")
 	rootCmd.Flags().StringVar(&opts.SystemPrompt, "system-prompt", "", "Override the system prompt for the agent")
+	rootCmd.Flags().BoolVar(&opts.Think, "think", false, "Enable model thinking/chain-of-thought for this request")
+	rootCmd.Flags().BoolVar(&opts.NoThink, "no-think", false, "Disable model thinking/chain-of-thought for this request")
 
 	// List/show flags
 	rootCmd.Flags().BoolVar(&opts.ListAgents, "list-agents", false, "List all available agents")
@@ -219,9 +224,10 @@ func parseAgentCommand(opts *CLIOptions) {
 	}
 
 	// Parse agent string
-	agentName, agentPath := ParseAgentString(agentStr)
+	agentName, agentPath, agentVersion := ParseAgentStringWithVersion(agentStr)
 	opts.AgentName = agentName
 	opts.AgentPath = agentPath
+	opts.AgentVersion = agentVersion
 
 	// Check if this is a user agent that overrides a builtin
 	if strings.HasPrefix(agentPath, "builtin:") && opts.DebugMode {

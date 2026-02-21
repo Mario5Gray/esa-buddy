@@ -85,6 +85,22 @@ args = ["--port", "8080"]
 			wantErr:     true,
 			errContains: "has no command defined",
 		},
+		{
+			name: "invalid agent version",
+			agentConfig: `
+name = "test-agent"
+description = "A test agent"
+version = "v1.2.3"
+
+[[functions]]
+name = "hello"
+description = "Say hello"
+command = "echo Hello"
+safe = true
+`,
+			wantErr:     true,
+			errContains: "invalid version",
+		},
 	}
 
 	for _, tt := range tests {
