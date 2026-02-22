@@ -9,11 +9,13 @@ import (
 	"strings"
 	"time"
 
+	retry "github.com/avast/retry-go/v4"
 	"github.com/fatih/color"
 	"github.com/google/uuid"
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/config"
 	"github.com/meain/esa/internal/executor"
+	"github.com/meain/esa/internal/llm"
 	"github.com/meain/esa/internal/mcp"
 	"github.com/meain/esa/internal/options"
 	"github.com/meain/esa/internal/redaction"
@@ -26,12 +28,11 @@ import (
 )
 
 const (
-	defaultModel         = "openai/gpt-5.2-2025-12-11"
-	toolCallCommandColor = color.FgCyan
-	toolCallOutputColor  = color.FgWhite
-	maxRetryCount        = 5
-	baseRetryDelay       = 1 * time.Second
-	maxRetryDelay        = 1 * time.Minute
+	toolCallCommandColor    = color.FgCyan
+	toolCallOutputColor     = color.FgWhite
+	defaultRetryMaxAttempts = 6
+	defaultRetryBaseDelay   = 1 * time.Second
+	defaultRetryMaxDelay    = 1 * time.Minute
 )
 
 // Common error messages
@@ -72,6 +73,9 @@ type Application struct {
 	compactionRedactionPolicy   string
 	compactionRedactor          redaction.Policy
 	compactionSummary           string
+	retryMaxAttempts            uint
+	retryBaseDelay              time.Duration
+	retryMaxDelay               time.Duration
 	lastModelUsed               string
 	lastCompactionTrigger       string
 	lastCompactionMsgCount      int
@@ -82,23 +86,15 @@ type Application struct {
 	execTooler                  executor.Executor
 }
 
-// ProviderInfo contains provider-specific configuration.
-type ProviderInfo struct {
-	BaseURL           string
-	APIKeyEnvar       string
-	APIKeyCanBeEmpty  bool
-	AdditionalHeaders map[string]string
-}
-
 // parseModel parses model string in format "provider/model" and
 // returns provider, model name, base URL and API key environment
 // variable
-func (app *Application) parseModel() (provider string, model string, info ProviderInfo) {
+func (app *Application) parseModel() (provider string, model string, info llm.ProviderInfo) {
 	modelStr := app.resolveModelString("chat", "")
-	return parseModel(modelStr, app.agent, app.config)
+	return llm.ParseModel(modelStr, app.agent, app.config)
 }
 
-func (app *Application) ParseModel() (provider string, model string, info ProviderInfo) {
+func (app *Application) ParseModel() (provider string, model string, info llm.ProviderInfo) {
 	return app.parseModel()
 }
 
@@ -135,7 +131,7 @@ func (app *Application) resolveModelString(purpose string, toolName string) stri
 	if app.config != nil && app.config.Settings.DefaultModel != "" {
 		return app.config.Settings.DefaultModel
 	}
-	return defaultModel
+	return llm.DefaultModel
 }
 
 func (app *Application) clientForModel(modelStr string) (*openai.Client, error) {
@@ -149,7 +145,7 @@ func (app *Application) clientForModel(modelStr string) (*openai.Client, error) 
 		return client, nil
 	}
 
-	client, err := setupOpenAIClient(modelStr, app.agent, app.config)
+	client, err := llm.SetupOpenAIClient(modelStr, app.agent, app.config)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +238,7 @@ func (app *Application) SetToolExecutor(exec executor.Executor) {
 
 func (app *Application) SetModel(modelStr string) error {
 	app.modelFlag = modelStr
-	client, err := setupOpenAIClient(modelStr, app.agent, app.config)
+	client, err := llm.SetupOpenAIClient(modelStr, app.agent, app.config)
 	if err != nil {
 		return err
 	}
@@ -266,10 +262,30 @@ func isRateLimitError(err error) bool {
 		strings.Contains(errStr, "rate limit")
 }
 
+func normalizeRetrySettings(settings config.Settings) (uint, time.Duration, time.Duration) {
+	maxAttempts := settings.RetryMaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = defaultRetryMaxAttempts
+	}
+
+	baseDelayMs := settings.RetryBaseDelayMs
+	if baseDelayMs <= 0 {
+		baseDelayMs = int(defaultRetryBaseDelay / time.Millisecond)
+	}
+	maxDelayMs := settings.RetryMaxDelayMs
+	if maxDelayMs <= 0 {
+		maxDelayMs = int(defaultRetryMaxDelay / time.Millisecond)
+	}
+	if maxDelayMs < baseDelayMs {
+		maxDelayMs = baseDelayMs
+	}
+
+	return uint(maxAttempts), time.Duration(baseDelayMs) * time.Millisecond, time.Duration(maxDelayMs) * time.Millisecond
+}
+
 // createChatCompletionWithRetry creates a chat completion stream with retry logic for rate limiting
 func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*openai.ChatCompletionStream, error) {
 	var stream *openai.ChatCompletionStream
-	var err error
 
 	if err := app.compactMessagesIfNeeded(); err != nil {
 		app.debugPrint("Compaction", fmt.Sprintf("Compaction skipped: %v", err))
@@ -282,42 +298,40 @@ func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*ope
 		return nil, err
 	}
 
-	// Retry logic for rate limiting
-	for attempt := 0; attempt <= maxRetryCount; attempt++ {
-		messages := buildRequestMessages(app.messages, app.compactionSummary)
-
-		stream, err = client.CreateChatCompletionStream(
-			context.Background(),
-			openai.ChatCompletionRequest{
-				Model:         modelStr,
-				Messages:      messages,
-				Tools:         tools,
-				StreamOptions: &openai.StreamOptions{IncludeUsage: true},
-			})
-
-		if err == nil {
-			return stream, nil // Success
-		}
-
-		if !isRateLimitError(err) {
-			// Not a rate limit error, return immediately
-			return nil, err
-		}
-
-		if attempt == maxRetryCount {
-			// Last attempt failed
-			return nil, fmt.Errorf("ChatCompletionStream error after %d retries: %w", maxRetryCount, err)
-		}
-
-		// Calculate delay and wait
-		delay := calculateRetryDelay(attempt)
-		app.debugPrint("Rate Limit",
-			fmt.Sprintf("Rate limit hit, retrying in %v (attempt %d/%d)", delay, attempt+1, maxRetryCount))
-
-		time.Sleep(delay)
+	messages := buildRequestMessages(app.messages, app.compactionSummary)
+	req := openai.ChatCompletionRequest{
+		Model:         modelStr,
+		Messages:      messages,
+		Tools:         tools,
+		StreamOptions: &openai.StreamOptions{IncludeUsage: true},
 	}
 
-	return nil, err // Should never reach here, but for safety
+	err = retry.Do(
+		func() error {
+			var callErr error
+			stream, callErr = client.CreateChatCompletionStream(context.Background(), req)
+			if callErr == nil {
+				return nil
+			}
+			if isRateLimitError(callErr) {
+				return callErr
+			}
+			return retry.Unrecoverable(callErr)
+		},
+		retry.Attempts(app.retryMaxAttempts),
+		retry.Delay(app.retryBaseDelay),
+		retry.DelayType(retry.BackOffDelay),
+		retry.MaxDelay(app.retryMaxDelay),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(n uint, err error) {
+			app.debugPrint("Rate Limit",
+				fmt.Sprintf("Rate limit hit, retrying (attempt %d/%d): %v", n+1, app.retryMaxAttempts, err))
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return stream, nil
 }
 
 func buildRequestMessages(messages []openai.ChatCompletionMessage, compactionSummary string) []openai.ChatCompletionMessage {
@@ -480,7 +494,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		agentCfg.SystemPrompt = opts.SystemPrompt
 	}
 
-	client, err := setupOpenAIClient(opts.Model, agentCfg, config)
+	client, err := llm.SetupOpenAIClient(opts.Model, agentCfg, config)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", errFailedToSetupClient, err)
 	}
@@ -488,6 +502,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 	showCommands := opts.ShowCommands || config.Settings.ShowCommands
 	showToolCalls := opts.ShowToolCalls || config.Settings.ShowToolCalls
 	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars, compactionRedactionPolicy := normalizeCompactionSettings(config.Settings)
+	retryMaxAttempts, retryBaseDelay, retryMaxDelay := normalizeRetrySettings(config.Settings)
 	if opts.Compaction {
 		compactPrompt = true
 	}
@@ -530,6 +545,9 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		compactionRedactionPolicy: compactionRedactionPolicy,
 		compactionRedactor:        redaction.PolicyByName(compactionRedactionPolicy),
 		compactionSummary:         compactionSummary,
+		retryMaxAttempts:          retryMaxAttempts,
+		retryBaseDelay:            retryBaseDelay,
+		retryMaxDelay:             retryMaxDelay,
 		counterProvider: func() tokenizer.CounterProvider {
 			fallback := tokenizer.FallbackCounter{CharsPerToken: 4}
 			provider := tokenizer.NewMapProvider(fallback)
@@ -693,7 +711,7 @@ func (app *Application) runConversationLoop(opts options.CLIOptions) {
 
 func (app *Application) getModel() string {
 	modelStr := app.resolveModelString("chat", "")
-	_, model, _ := parseModel(modelStr, app.agent, app.config)
+	_, model, _ := llm.ParseModel(modelStr, app.agent, app.config)
 	return model
 }
 

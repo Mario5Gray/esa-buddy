@@ -1,19 +1,17 @@
-package conversation
+package llm
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/config"
 	"github.com/sashabaranov/go-openai"
 )
 
-func setupOpenAIClient(modelStr string, agentCfg agent.Agent, cfg *config.Config) (*openai.Client, error) {
-	_, _, info := parseModel(modelStr, agentCfg, cfg)
+func SetupOpenAIClient(modelStr string, agentCfg agent.Agent, cfg *config.Config) (*openai.Client, error) {
+	_, _, info := ParseModel(modelStr, agentCfg, cfg)
 
 	configuredAPIKey := os.Getenv(info.APIKeyEnvar)
 	// Key name can be empty if we don't need any keys
@@ -50,17 +48,4 @@ func (t *transportWithCustomHeaders) RoundTrip(req *http.Request) (*http.Respons
 		req.Header.Set(key, value)
 	}
 	return t.base.RoundTrip(req)
-}
-
-// calculateRetryDelay calculates exponential backoff delay with jitter
-func calculateRetryDelay(attempt int) time.Duration {
-	// Exponential backoff: baseDelay * 2^attempt
-	delay := time.Duration(float64(baseRetryDelay) * math.Pow(2, float64(attempt)))
-
-	// Cap the delay
-	if delay > maxRetryDelay {
-		delay = maxRetryDelay
-	}
-
-	return delay
 }

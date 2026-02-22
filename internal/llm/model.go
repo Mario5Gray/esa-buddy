@@ -1,4 +1,4 @@
-package conversation
+package llm
 
 import (
 	"log"
@@ -9,7 +9,18 @@ import (
 	"github.com/meain/esa/internal/config"
 )
 
-func parseModel(modelStr string, agentCfg agent.Agent, cfg *config.Config) (provider string, model string, info ProviderInfo) {
+// DefaultModel is the fallback model when none is specified.
+const DefaultModel = "openai/gpt-5.2-2025-12-11"
+
+// ProviderInfo contains provider-specific configuration.
+type ProviderInfo struct {
+	BaseURL           string
+	APIKeyEnvar       string
+	APIKeyCanBeEmpty  bool
+	AdditionalHeaders map[string]string
+}
+
+func ParseModel(modelStr string, agentCfg agent.Agent, cfg *config.Config) (provider string, model string, info ProviderInfo) {
 	if modelStr == "" {
 		if agentCfg.DefaultModel != "" {
 			modelStr = agentCfg.DefaultModel
@@ -17,7 +28,7 @@ func parseModel(modelStr string, agentCfg agent.Agent, cfg *config.Config) (prov
 			modelStr = cfg.Settings.DefaultModel
 		} else {
 			// Fallback to default model if nothing is specified
-			modelStr = defaultModel
+			modelStr = DefaultModel
 		}
 	}
 

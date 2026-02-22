@@ -6,6 +6,7 @@ import (
 
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/config"
+	"github.com/meain/esa/internal/llm"
 	"github.com/meain/esa/internal/options"
 )
 
@@ -17,7 +18,7 @@ func TestParseModel(t *testing.T) {
 		agent        agent.Agent
 		wantProvider string
 		wantModel    string
-		wantInfo     ProviderInfo
+		wantInfo     llm.ProviderInfo
 	}{
 		{
 			name:         "OpenAI default model",
@@ -26,7 +27,7 @@ func TestParseModel(t *testing.T) {
 			agent:        agent.Agent{},
 			wantProvider: "openai",
 			wantModel:    "gpt-4",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "https://api.openai.com/v1",
 				APIKeyEnvar: "OPENAI_API_KEY",
 			},
@@ -45,7 +46,7 @@ func TestParseModel(t *testing.T) {
 			agent:        agent.Agent{},
 			wantProvider: "custom",
 			wantModel:    "model-1",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "https://custom.api/v1",
 				APIKeyEnvar: "CUSTOM_API_KEY",
 			},
@@ -64,7 +65,7 @@ func TestParseModel(t *testing.T) {
 			agent:        agent.Agent{},
 			wantProvider: "openai",
 			wantModel:    "gpt-4",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "https://custom-openai.api/v2",
 				APIKeyEnvar: "OPENAI_API_KEY", // Should keep default
 			},
@@ -83,7 +84,7 @@ func TestParseModel(t *testing.T) {
 			agent:        agent.Agent{},
 			wantProvider: "custom",
 			wantModel:    "model-1",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "https://custom.api/v1",
 				APIKeyEnvar: "CUSTOM_API_KEY",
 			},
@@ -95,7 +96,7 @@ func TestParseModel(t *testing.T) {
 			agent:        agent.Agent{},
 			wantProvider: "ollama",
 			wantModel:    "llama2",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "http://localhost:11434/v1",
 				APIKeyEnvar: "OLLAMA_API_KEY",
 			},
@@ -109,7 +110,7 @@ func TestParseModel(t *testing.T) {
 			},
 			wantProvider: "groq",
 			wantModel:    "llama3-8b",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "https://api.groq.com/openai/v1",
 				APIKeyEnvar: "GROQ_API_KEY",
 			},
@@ -123,7 +124,7 @@ func TestParseModel(t *testing.T) {
 			},
 			wantProvider: "openai",
 			wantModel:    "gpt-4",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "https://api.openai.com/v1",
 				APIKeyEnvar: "OPENAI_API_KEY",
 			},
@@ -141,7 +142,7 @@ func TestParseModel(t *testing.T) {
 			},
 			wantProvider: "groq",
 			wantModel:    "llama3-8b",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "https://api.groq.com/openai/v1",
 				APIKeyEnvar: "GROQ_API_KEY",
 			},
@@ -155,7 +156,7 @@ func TestParseModel(t *testing.T) {
 			},
 			wantProvider: "ollama",
 			wantModel:    "llama3.2",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "http://localhost:11434/v1",
 				APIKeyEnvar: "OLLAMA_API_KEY",
 			},
@@ -171,7 +172,7 @@ func TestParseModel(t *testing.T) {
 			agent:        agent.Agent{}, // No default model
 			wantProvider: "ollama",
 			wantModel:    "codellama",
-			wantInfo: ProviderInfo{
+			wantInfo: llm.ProviderInfo{
 				BaseURL:     "http://localhost:11434/v1",
 				APIKeyEnvar: "OLLAMA_API_KEY",
 			},
@@ -331,7 +332,7 @@ func TestEmptyApiKeyAcceptance(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := setupOpenAIClient(tt.modelStr, agent.Agent{}, &config.Config{})
+			_, err := llm.SetupOpenAIClient(tt.modelStr, agent.Agent{}, &config.Config{})
 
 			if (err != nil) != tt.expectError {
 				t.Errorf("Expected error: %v, got: %v", tt.expectError, err)

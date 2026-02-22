@@ -21,6 +21,9 @@ type Settings struct {
 	CompactionKeepLast    int    `toml:"compaction_keep_last"`
 	CompactionMaxChars    int    `toml:"compaction_max_chars"`
 	CompactionRedaction   string `toml:"compaction_redaction_policy"`
+	RetryMaxAttempts      int    `toml:"retry_max_attempts"`
+	RetryBaseDelayMs      int    `toml:"retry_base_delay_ms"`
+	RetryMaxDelayMs       int    `toml:"retry_max_delay_ms"`
 }
 
 // Config represents the global configuration structure
@@ -79,6 +82,9 @@ func LoadConfig(configPath string) (*Config, error) {
 				CompactionMaxMessages: 40,
 				CompactionKeepLast:    12,
 				CompactionMaxChars:    20000,
+				RetryMaxAttempts:      6,
+				RetryBaseDelayMs:      1000,
+				RetryMaxDelayMs:       60000,
 			},
 		}
 		file, err := os.Create(configPath)
