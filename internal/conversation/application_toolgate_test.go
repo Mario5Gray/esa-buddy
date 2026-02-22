@@ -38,7 +38,7 @@ func TestHandleToolCallsDeniedByGate(t *testing.T) {
 		},
 	}
 
-	app.handleToolCalls(toolCalls, options.CLIOptions{})
+	app.toolDispatcher().HandleToolCalls(toolCalls, options.CLIOptions{})
 
 	if len(app.messages) == 0 {
 		t.Fatalf("expected tool denial message, got none")
@@ -92,7 +92,7 @@ func TestHandleToolCallsAllowedByGate(t *testing.T) {
 		},
 	}
 
-	app.handleToolCalls(toolCalls, options.CLIOptions{})
+	app.toolDispatcher().HandleToolCalls(toolCalls, options.CLIOptions{})
 
 	if len(app.messages) == 0 {
 		t.Fatalf("expected tool response message, got none")

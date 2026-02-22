@@ -14,6 +14,7 @@ This guide provides comprehensive instructions for creating custom ESA agents. A
 - [Best Practices](#best-practices)
 - [Example Agents](#example-agents)
 - [Debugging and Testing](#debugging-and-testing)
+- [Agent Editing Workflow](#agent-editing-workflow)
 
 ## Overview
 
@@ -881,6 +882,48 @@ required = false
 ```
 
 ## Debugging and Testing
+
+## Agent Editing Workflow
+
+Use this workflow when editing agent files or related code to avoid preventable issues like dangling symbols, mis-defined imports, or name collisions.
+
+1. **Snapshot intent**
+   - Write down the symbols you plan to rename or move (e.g., `ConversationHistory`, `ProviderInfo`).
+
+2. **Locate references (fast scan)**
+```bash
+rg -n "ConversationHistory|ProviderInfo|CompactionMeta" internal
+```
+
+3. **Tree-sitter symbol scan (structure-aware)**
+```bash
+# defs
+tree-sitter query /tmp/ts_defs.scm internal/cli/cli_history.go
+
+# calls/refs
+tree-sitter query /tmp/ts_calls.scm internal/cli/cli_history.go
+```
+
+4. **Edit with import safety**
+   - If you add a new package with overlapping names, alias it immediately (e.g., `hist`).
+   - Prefer renaming local variables to avoid `package` vs `var` collisions.
+
+5. **Post-edit dangling check**
+```bash
+rg -n "ConversationHistory|ProviderInfo|CompactionMeta" internal
+```
+
+6. **Compile-time verification**
+```bash
+CGO_ENABLED=0 go build ./...
+```
+
+7. **Optional: vet**
+```bash
+go vet ./...
+```
+
+This catches most issues before runtime, especially when refactoring types across packages.
 
 ### 1. Debug Mode
 

@@ -10,11 +10,11 @@ import (
 	"time"
 
 	retry "github.com/avast/retry-go/v4"
-	"github.com/fatih/color"
 	"github.com/google/uuid"
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/config"
 	"github.com/meain/esa/internal/conversation/history"
+	convtools "github.com/meain/esa/internal/conversation/tools"
 	"github.com/meain/esa/internal/executor"
 	"github.com/meain/esa/internal/llm"
 	"github.com/meain/esa/internal/mcp"
@@ -29,8 +29,6 @@ import (
 )
 
 const (
-	toolCallCommandColor    = color.FgCyan
-	toolCallOutputColor     = color.FgWhite
 	defaultRetryMaxAttempts = 6
 	defaultRetryBaseDelay   = 1 * time.Second
 	defaultRetryMaxDelay    = 1 * time.Minute
@@ -703,7 +701,7 @@ func (app *Application) runConversationLoop(opts options.CLIOptions) {
 			break
 		}
 
-		app.handleToolCalls(assistantMsg.ToolCalls, opts)
+		app.toolDispatcher().HandleToolCalls(assistantMsg.ToolCalls, opts)
 
 		// Save history after processing tool calls
 		app.saveConversationHistory()
@@ -781,216 +779,20 @@ func (app *Application) ensureMessageMeta(modelString string) []history.HistoryM
 	return app.messageMeta
 }
 
-func (app *Application) generateProgressSummary(funcName string, args string) string {
-	return fmt.Sprintf("Calling %s...", funcName)
-}
-
-func (app *Application) handleToolCalls(toolCalls []openai.ToolCall, opts options.CLIOptions) {
-	for _, toolCall := range toolCalls {
-		if toolCall.Type != "function" || toolCall.Function.Name == "" {
-			continue
-		}
-
-		// Check if it's an MCP tool (starts with "mcp_")
-		// FIXME: This might not be reliable, the user might define a
-		// function that starts with mcp_
-		if strings.HasPrefix(toolCall.Function.Name, "mcp_") {
-			app.handleMCPToolCall(toolCall, opts)
-			continue
-		}
-
-		// Handle regular function
-		var matchedFunc agent.FunctionConfig
-		for _, fc := range app.agent.Functions {
-			if fc.Name == toolCall.Function.Name {
-				matchedFunc = fc
-				break
-			}
-		}
-
-		if matchedFunc.Name == "" {
-			log.Fatalf("No matching function found for: %s", toolCall.Function.Name)
-		}
-
-		if app.showProgress && len(matchedFunc.Output) == 0 {
-			if summary := app.generateProgressSummary(matchedFunc.Name, toolCall.Function.Arguments); summary != "" {
-				// Clear previous line if exists
-				if app.lastProgressLen > 0 {
-					fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", app.lastProgressLen))
-				}
-				msg := fmt.Sprintf("⋮ %s", summary)
-				color.New(color.FgBlue).Fprint(os.Stderr, msg)
-				app.lastProgressLen = len(msg)
-			}
-		}
-
-		// Set the provider and model env so that nested esa calls
-		// make use of it. Users can override this by setting the
-		// value explicitly in the nested esa calls.
-		provider, model, _ := app.parseModel()
-		os.Setenv("ESA_MODEL", fmt.Sprintf("%s/%s", provider, model))
-
-		intent := security.ToolIntent{
-			ToolName: matchedFunc.Name,
-			ArgsJSON: toolCall.Function.Arguments,
-		}
-		// Tool execution is gated by an ordered policy chain. The first gate to
-		// return Allow or Deny wins; Abstain continues; all-abstain defaults to Deny.
-		decision, _, err := app.toolGate.Evaluate(intent)
-		if err != nil || decision != security.Allow {
-			app.debugPrint("Tool Gate",
-				fmt.Sprintf("Decision: %v", decision),
-				fmt.Sprintf("Error: %v", err))
-			app.messages = append(app.messages, openai.ChatCompletionMessage{
-				Role:       "tool",
-				Name:       toolCall.Function.Name,
-				Content:    "Tool execution denied by policy.",
-				ToolCallID: toolCall.ID,
-			})
-			continue
-		}
-
-		execTooler := app.execTooler
-		if execTooler == nil {
-			execTooler = executor.DefaultExecutor{}
-		}
-		approved, command, stdin, result, err := execTooler.Execute(
-			app.getEffectiveAskLevel(),
-			matchedFunc,
-			toolCall.Function.Arguments,
-		)
-		app.debugPrint("Function Execution",
-			fmt.Sprintf("Function: %s", matchedFunc.Name),
-			fmt.Sprintf("Approved: %s", fmt.Sprint(approved)),
-			fmt.Sprintf("Command: %s", command),
-			fmt.Sprintf("Stdin: %s", stdin),
-			fmt.Sprintf("Output: %s", result))
-
-		if err != nil {
-			app.debugPrint("Function Error", err)
-			// Clear progress line before showing error
-			if app.showProgress && app.lastProgressLen > 0 {
-				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", app.lastProgressLen))
-				app.lastProgressLen = 0
-			}
-
-			app.messages = append(app.messages, openai.ChatCompletionMessage{
-				Role:       "tool",
-				Name:       toolCall.Function.Name,
-				Content:    fmt.Sprintf("Error: %v", err),
-				ToolCallID: toolCall.ID,
-			})
-			continue
-		}
-
-		content := fmt.Sprintf("Command: %s\n\nOutput: \n%s", command, result)
-
-		// Display command when --show-commands is enabled
-		if app.showCommands || app.showToolCalls {
-			color.New(toolCallCommandColor).Fprintf(os.Stderr, "$ %s\n", command)
-		}
-
-		// Display tool call output when --show-tool-calls is enabled
-		if app.showToolCalls {
-			color.New(toolCallOutputColor).Fprintf(os.Stderr, "%s\n", result)
-		}
-
-		app.messages = append(app.messages, openai.ChatCompletionMessage{
-			Role:       "tool",
-			Name:       toolCall.Function.Name,
-			Content:    content,
-			ToolCallID: toolCall.ID,
-		})
-	}
-}
-
-// handleMCPToolCall handles tool calls for MCP servers
-func (app *Application) handleMCPToolCall(toolCall openai.ToolCall, opts options.CLIOptions) {
-	if app.showProgress {
-		if summary := app.generateProgressSummary(toolCall.Function.Name, toolCall.Function.Arguments); summary != "" {
-			// Clear previous line if exists
-			if app.lastProgressLen > 0 {
-				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", app.lastProgressLen))
-			}
-			msg := fmt.Sprintf("⋮ %s", summary)
-			color.New(color.FgBlue).Fprint(os.Stderr, msg)
-			app.lastProgressLen = len(msg)
-		}
-	}
-
-	// Parse the arguments
-	var arguments any
-	if toolCall.Function.Arguments != "" {
-		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); err != nil {
-			app.debugPrint("MCP Tool Error", fmt.Sprintf("Failed to parse arguments: %v", err))
-			// Clear progress line before showing error
-			if app.showProgress && app.lastProgressLen > 0 {
-				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", app.lastProgressLen))
-				app.lastProgressLen = 0
-			}
-
-			app.messages = append(app.messages, openai.ChatCompletionMessage{
-				Role:       "tool",
-				Name:       toolCall.Function.Name,
-				Content:    fmt.Sprintf("Error: Failed to parse arguments: %v", err),
-				ToolCallID: toolCall.ID,
-			})
-			return
-		}
-	}
-
-	// Call the MCP tool with ask level
-	result, err := app.mcpManager.CallTool(toolCall.Function.Name, arguments, app.getEffectiveAskLevel())
-
-	app.debugPrint("MCP Tool Execution",
-		fmt.Sprintf("Tool: %s", toolCall.Function.Name),
-		fmt.Sprintf("Arguments: %s", toolCall.Function.Arguments),
-		fmt.Sprintf("Output: %s", result))
-
-	if err != nil {
-		app.debugPrint("MCP Tool Error", err)
-		// Clear progress line before showing error
-		if app.showProgress && app.lastProgressLen > 0 {
-			fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", app.lastProgressLen))
-			app.lastProgressLen = 0
-		}
-
-		app.messages = append(app.messages, openai.ChatCompletionMessage{
-			Role:       "tool",
-			Name:       toolCall.Function.Name,
-			Content:    fmt.Sprintf("Error: %v", err),
-			ToolCallID: toolCall.ID,
-		})
-		return
-	}
-
-	// Format arguments for display
-	var argsDisplay string
-	if arguments != nil {
-		if argsJSON, err := json.Marshal(arguments); err == nil {
-			argsDisplay = string(argsJSON)
-		} else {
-			argsDisplay = fmt.Sprintf("%v", arguments)
-		}
-	} else {
-		argsDisplay = "{}"
-	}
-
-	// Display command when --show-commands is enabled
-	if app.showCommands || app.showToolCalls {
-		color.New(toolCallCommandColor).Fprintf(os.Stderr, "# %s(%s)\n", toolCall.Function.Name, argsDisplay)
-	}
-
-	// Display MCP tool call with output when --show-tool-calls is enabled
-	if app.showToolCalls {
-		color.New(toolCallOutputColor).Fprintf(os.Stderr, "%s\n", result)
-	}
-
-	app.messages = append(app.messages, openai.ChatCompletionMessage{
-		Role:       "tool",
-		Name:       toolCall.Function.Name,
-		Content:    result,
-		ToolCallID: toolCall.ID,
+func (app *Application) toolDispatcher() *convtools.Dispatcher {
+	return convtools.NewDispatcher(convtools.Deps{
+		Agent:                app.agent,
+		ShowCommands:         app.showCommands,
+		ShowToolCalls:        app.showToolCalls,
+		ShowProgress:         app.showProgress,
+		LastProgressLen:      &app.lastProgressLen,
+		Messages:             &app.messages,
+		ToolGate:             app.toolGate,
+		ExecTooler:           app.execTooler,
+		MCPManager:           app.mcpManager,
+		DebugPrint:           app.debugPrint,
+		ParseModel:           app.parseModel,
+		GetEffectiveAskLevel: app.getEffectiveAskLevel,
 	})
 }
 
