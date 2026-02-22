@@ -10,6 +10,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/meain/esa/internal/conversation"
+	hist "github.com/meain/esa/internal/conversation/history"
 	"github.com/meain/esa/internal/utils"
 	"github.com/sashabaranov/go-openai"
 )
@@ -59,10 +60,10 @@ func listHistory(showAll bool) {
 		historyFilePath := filepath.Join(cacheDir, fileName)
 		var query string
 		if historyData, err := os.ReadFile(historyFilePath); err == nil {
-			var history conversation.ConversationHistory
-			if err := json.Unmarshal(historyData, &history); err == nil {
+			var historyDataObj hist.ConversationHistory
+			if err := json.Unmarshal(historyData, &historyDataObj); err == nil {
 				prevMessage := ""
-				for _, msg := range history.Messages {
+				for _, msg := range historyDataObj.Messages {
 					if msg.Role == openai.ChatMessageRoleAssistant {
 						query = strings.ReplaceAll(prevMessage, "\n", " ")
 						if len(query) > 60 {
@@ -107,7 +108,7 @@ func handleShowHistory(conversationID string, outputFormat string) {
 	}
 }
 
-func readHistoryFile(conversationID string) (string, conversation.ConversationHistory, bool) {
+func readHistoryFile(conversationID string) (string, hist.ConversationHistory, bool) {
 	cacheDir, err := utils.SetupCacheDir()
 	if err != nil {
 		if strings.Contains(err.Error(), "no history files found") || strings.Contains(err.Error(), "cache directory does not exist") {
@@ -115,29 +116,29 @@ func readHistoryFile(conversationID string) (string, conversation.ConversationHi
 		} else {
 			printError(err.Error())
 		}
-		return "", conversation.ConversationHistory{}, false
+		return "", hist.ConversationHistory{}, false
 	}
 
 	historyFilePath, err := utils.FindHistoryFile(cacheDir, conversationID)
 	if err != nil {
 		printError(fmt.Sprintf("Error finding history file for %s", conversationID))
-		return "", conversation.ConversationHistory{}, false
+		return "", hist.ConversationHistory{}, false
 	}
 
 	historyData, err := os.ReadFile(historyFilePath)
 	if err != nil {
 		printError(fmt.Sprintf("Error reading history file for %s", conversationID))
-		return "", conversation.ConversationHistory{}, false
+		return "", hist.ConversationHistory{}, false
 	}
 
-	var history conversation.ConversationHistory
-	err = json.Unmarshal(historyData, &history)
+	var historyDataObj hist.ConversationHistory
+	err = json.Unmarshal(historyData, &historyDataObj)
 	if err != nil {
 		printError(fmt.Sprintf("Error loading history file for %s", conversationID))
-		return "", conversation.ConversationHistory{}, false
+		return "", hist.ConversationHistory{}, false
 	}
 
-	return historyFilePath, history, true
+	return historyFilePath, historyDataObj, true
 }
 
 // handleShowOutput displays output from a specific history file.

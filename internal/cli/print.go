@@ -11,6 +11,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/conversation"
+	"github.com/meain/esa/internal/conversation/history"
 	"github.com/meain/esa/internal/mcp"
 	"github.com/sashabaranov/go-openai"
 )
@@ -97,7 +98,7 @@ func printInfo(msg string) {
 }
 
 // printHistoryJSON prints the raw history data as JSON.
-func printHistoryJSON(history conversation.ConversationHistory) {
+func printHistoryJSON(history history.ConversationHistory) {
 	if out, err := json.MarshalIndent(history, "", "  "); err == nil {
 		fmt.Println(string(out))
 	} else {
@@ -106,7 +107,7 @@ func printHistoryJSON(history conversation.ConversationHistory) {
 }
 
 // printHistoryMarkdown prints the history in Markdown format.
-func printHistoryMarkdown(fileName string, history conversation.ConversationHistory) {
+func printHistoryMarkdown(fileName string, history history.ConversationHistory) {
 	fmt.Printf("# History: %s\n\n", fileName)
 	if history.AgentPath != "" {
 		agentName := strings.TrimSuffix(filepath.Base(history.AgentPath), ".toml")
@@ -179,7 +180,7 @@ func printHistoryMarkdown(fileName string, history conversation.ConversationHist
 }
 
 // printHistoryText prints the history in the default colored text format.
-func printHistoryText(fileName string, history conversation.ConversationHistory) {
+func printHistoryText(fileName string, history history.ConversationHistory) {
 	messages := history.Messages
 	agentPath := history.AgentPath
 	model := history.Model
@@ -266,7 +267,7 @@ func printHistoryText(fileName string, history conversation.ConversationHistory)
 }
 
 // printOutput prints last output of a history file
-func printOutput(history conversation.ConversationHistory, pretty bool) {
+func printOutput(history history.ConversationHistory, pretty bool) {
 	if len(history.Messages) < 1 {
 		fmt.Println("No messages found in this history.")
 		return
