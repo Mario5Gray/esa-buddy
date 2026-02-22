@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/meain/esa/internal/conversation/history"
 	"github.com/meain/esa/internal/utils"
 )
 
@@ -66,7 +67,7 @@ func (sc *StatsCollector) ProcessHistoryFile(filePath string, fileName string, f
 		return utils.WrapFileError("read", filePath, err)
 	}
 
-	var history ConversationHistory
+	var history history.ConversationHistory
 	if err := json.Unmarshal(historyData, &history); err != nil {
 		// Skip files with JSON parsing errors silently
 		return nil

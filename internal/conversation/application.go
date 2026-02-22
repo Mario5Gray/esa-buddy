@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/config"
+	"github.com/meain/esa/internal/conversation/history"
 	"github.com/meain/esa/internal/executor"
 	"github.com/meain/esa/internal/llm"
 	"github.com/meain/esa/internal/mcp"
@@ -53,7 +54,7 @@ type Application struct {
 	debug                       bool
 	historyFile                 string
 	messages                    []openai.ChatCompletionMessage
-	messageMeta                 []HistoryMessageMeta
+	messageMeta                 []history.HistoryMessageMeta
 	usage                       token.Usage // accumulated token counts across LLM calls
 	debugPrint                  func(section string, v ...any)
 	showCommands                bool
@@ -385,7 +386,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 
 	historyFile, hasHistory := utils.GetHistoryFilePath(cacheDir, opts)
 	if hasHistory && (opts.ContinueChat || opts.RetryChat) {
-		var history ConversationHistory
+		var history history.ConversationHistory
 		data, err := os.ReadFile(historyFile)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", errFailedToLoadHistory, err)
@@ -731,35 +732,6 @@ func (app *Application) getEffectiveAskLevel() string {
 	return effectiveLevel
 }
 
-type ConversationHistory struct {
-	AgentPath   string                         `json:"agent_path"`
-	Model       string                         `json:"model"`
-	Messages    []openai.ChatCompletionMessage `json:"messages"`
-	MessageMeta []HistoryMessageMeta           `json:"message_meta,omitempty"`
-	// Compaction.Summary is trusted metadata stored out-of-band (not derived from message content).
-	Compaction *CompactionMeta `json:"compaction,omitempty"`
-	Usage      *token.Usage    `json:"usage,omitempty"` // nil in history files from before token tracking
-}
-
-type HistoryMessageMeta struct {
-	ID    string `json:"id"`
-	Model string `json:"model,omitempty"`
-	Role  string `json:"role,omitempty"`
-}
-
-type CompactionMeta struct {
-	Enabled           bool   `json:"enabled"`
-	MaxMessages       int    `json:"max_messages"`
-	KeepLast          int    `json:"keep_last"`
-	MaxChars          int    `json:"max_chars"`
-	RedactionPolicy   string `json:"redaction_policy,omitempty"`
-	Summary           string `json:"summary,omitempty"`
-	LastTrigger       string `json:"last_trigger,omitempty"`
-	LastMsgCount      int    `json:"last_msg_count,omitempty"`
-	LastCharCount     int    `json:"last_char_count,omitempty"`
-	LastTokenEstimate int    `json:"last_token_estimate,omitempty"`
-}
-
 func (app *Application) saveConversationHistory() {
 	provider, model, _ := app.parseModel()
 	modelString := fmt.Sprintf("%s/%s", provider, model)
@@ -773,7 +745,7 @@ func (app *Application) saveConversationHistory() {
 	}
 
 	messageMeta := app.ensureMessageMeta(modelString)
-	compaction := &CompactionMeta{
+	compaction := &history.CompactionMeta{
 		Enabled:         app.compactPrompt,
 		MaxMessages:     app.compactMaxMsgs,
 		KeepLast:        app.compactKeepLast,
@@ -788,7 +760,7 @@ func (app *Application) saveConversationHistory() {
 		compaction.LastTokenEstimate = app.lastCompactionTokenEstimate
 	}
 
-	history := ConversationHistory{
+	historyData := history.ConversationHistory{
 		AgentPath:   app.agentPath,
 		Model:       modelString,
 		Messages:    app.messages,
@@ -797,42 +769,15 @@ func (app *Application) saveConversationHistory() {
 		Usage:       usagePtr,
 	}
 
-	if data, err := json.Marshal(history); err == nil {
+	if data, err := json.Marshal(historyData); err == nil {
 		if err := os.WriteFile(app.historyFile, data, 0644); err != nil {
 			app.debugPrint("Error", fmt.Sprintf("Failed to save history: %v", err))
 		}
 	}
 }
 
-func (app *Application) ensureMessageMeta(modelString string) []HistoryMessageMeta {
-	if app.messageMeta == nil {
-		app.messageMeta = make([]HistoryMessageMeta, 0, len(app.messages))
-	}
-
-	// Trim excess if messages were truncated (e.g., retry mode)
-	if len(app.messageMeta) > len(app.messages) {
-		app.messageMeta = app.messageMeta[:len(app.messages)]
-	}
-
-	for len(app.messageMeta) < len(app.messages) {
-		msg := app.messages[len(app.messageMeta)]
-		app.messageMeta = append(app.messageMeta, HistoryMessageMeta{
-			ID:    newMessageID(),
-			Model: modelString,
-			Role:  msg.Role,
-		})
-	}
-
-	// Fill missing model/role on existing entries
-	for i := range app.messageMeta {
-		if app.messageMeta[i].Model == "" {
-			app.messageMeta[i].Model = modelString
-		}
-		if app.messageMeta[i].Role == "" && i < len(app.messages) {
-			app.messageMeta[i].Role = app.messages[i].Role
-		}
-	}
-
+func (app *Application) ensureMessageMeta(modelString string) []history.HistoryMessageMeta {
+	app.messageMeta = history.EnsureMessageMeta(app.messageMeta, app.messages, modelString, newMessageID)
 	return app.messageMeta
 }
 
