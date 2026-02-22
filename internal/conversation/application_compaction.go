@@ -264,6 +264,8 @@ func (app *Application) estimateTokens(text string) int {
 				return n
 			}
 		}
+		app.debugPrint("Token Estimate",
+			fmt.Sprintf("No token counter matched provider=%q model=%q; using 0", provider, model))
 	}
 	return 0
 }

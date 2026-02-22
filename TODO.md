@@ -39,6 +39,13 @@
 - [ ] Redaction/PII policy and opt-out modes
 - [ ] Compaction metrics and history metadata
 
+## Phase 1.5: Redaction & Analysis
+
+### 1. External Redaction Analyzer
+- [ ] Define analyzer interface and lifecycle (sync/async)
+- [ ] Wire analyzer outputs into compaction redaction policy
+- [ ] Configuration for analyzer endpoint/adapter
+
 ## Phase 2: Hub Architecture
 
 ### 4. Client Interface Design

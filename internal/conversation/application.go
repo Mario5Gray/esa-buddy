@@ -284,21 +284,7 @@ func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*ope
 
 	// Retry logic for rate limiting
 	for attempt := 0; attempt <= maxRetryCount; attempt++ {
-		messages := app.messages
-		if app.compactionSummary != "" {
-			summaryMsg := openai.ChatCompletionMessage{
-				Role:    "system",
-				Content: app.compactionSummary,
-			}
-			if len(messages) > 0 && messages[0].Role == "system" {
-				messages = append(
-					[]openai.ChatCompletionMessage{messages[0], summaryMsg},
-					messages[1:]...,
-				)
-			} else {
-				messages = append([]openai.ChatCompletionMessage{summaryMsg}, messages...)
-			}
-		}
+		messages := buildRequestMessages(app.messages, app.compactionSummary)
 
 		stream, err = client.CreateChatCompletionStream(
 			context.Background(),
@@ -332,6 +318,24 @@ func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*ope
 	}
 
 	return nil, err // Should never reach here, but for safety
+}
+
+func buildRequestMessages(messages []openai.ChatCompletionMessage, compactionSummary string) []openai.ChatCompletionMessage {
+	trimmedSummary := strings.TrimSpace(compactionSummary)
+	if trimmedSummary == "" {
+		return messages
+	}
+	summaryMsg := openai.ChatCompletionMessage{
+		Role:    "system",
+		Content: trimmedSummary,
+	}
+	if len(messages) > 0 && messages[0].Role == "system" {
+		return append(
+			[]openai.ChatCompletionMessage{messages[0], summaryMsg},
+			messages[1:]...,
+		)
+	}
+	return append([]openai.ChatCompletionMessage{summaryMsg}, messages...)
 }
 
 func NewApplication(opts *options.CLIOptions) (*Application, error) {
@@ -714,8 +718,9 @@ type ConversationHistory struct {
 	Model       string                         `json:"model"`
 	Messages    []openai.ChatCompletionMessage `json:"messages"`
 	MessageMeta []HistoryMessageMeta           `json:"message_meta,omitempty"`
-	Compaction  *CompactionMeta                `json:"compaction,omitempty"`
-	Usage       *token.Usage                   `json:"usage,omitempty"` // nil in history files from before token tracking
+	// Compaction.Summary is trusted metadata stored out-of-band (not derived from message content).
+	Compaction *CompactionMeta `json:"compaction,omitempty"`
+	Usage      *token.Usage    `json:"usage,omitempty"` // nil in history files from before token tracking
 }
 
 type HistoryMessageMeta struct {
