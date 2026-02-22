@@ -20,6 +20,7 @@ import (
 	"github.com/meain/esa/internal/security"
 	"github.com/meain/esa/internal/token"
 	"github.com/meain/esa/internal/tokenizer"
+	"github.com/meain/esa/internal/tools"
 	"github.com/meain/esa/internal/utils"
 	"github.com/sashabaranov/go-openai"
 )
