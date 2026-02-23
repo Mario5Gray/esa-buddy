@@ -500,13 +500,24 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 
 	showCommands := opts.ShowCommands || config.Settings.ShowCommands
 	showToolCalls := opts.ShowToolCalls || config.Settings.ShowToolCalls
-	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars, compactionRedactionPolicy := normalizeCompactionSettings(config.Settings)
+	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars, redactionConfig, legacyRedactionPolicy := normalizeCompactionSettings(config.Settings)
 	retryMaxAttempts, retryBaseDelay, retryMaxDelay := normalizeRetrySettings(config.Settings)
 	if opts.Compaction {
 		compactPrompt = true
 	}
 	if opts.NoCompaction {
 		compactPrompt = false
+	}
+
+	compactionRedactionPolicy := legacyRedactionPolicy
+	var compactionRedactor redaction.Policy
+	if compactPrompt {
+		policy, resolvedName, err := redaction.BuildPolicy(redactionConfig, legacyRedactionPolicy)
+		if err != nil {
+			return nil, err
+		}
+		compactionRedactionPolicy = resolvedName
+		compactionRedactor = policy
 	}
 
 	// Initialize MCP manager
@@ -542,7 +553,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		compactKeepLast:           compactKeepLast,
 		compactMaxChars:           compactMaxChars,
 		compactionRedactionPolicy: compactionRedactionPolicy,
-		compactionRedactor:        redaction.PolicyByName(compactionRedactionPolicy),
+		compactionRedactor:        compactionRedactor,
 		compactionSummary:         compactionSummary,
 		retryMaxAttempts:          retryMaxAttempts,
 		retryBaseDelay:            retryBaseDelay,

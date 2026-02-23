@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/meain/esa/internal/config"
 	"github.com/meain/esa/internal/redaction"
@@ -16,14 +17,25 @@ const (
 	defaultCompactionMaxChars    = 20000
 )
 
-func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsgs int, keepLast int, maxChars int, redactionPolicy string) {
+func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsgs int, keepLast int, maxChars int, redactionConfig redaction.Config, legacyPolicy string) {
 	enabled = settings.PromptCompaction
 	maxMsgs = settings.CompactionMaxMessages
 	keepLast = settings.CompactionKeepLast
 	maxChars = settings.CompactionMaxChars
-	redactionPolicy = strings.TrimSpace(settings.CompactionRedaction)
-	if redactionPolicy == "" {
-		redactionPolicy = redaction.PolicyNone
+	legacyPolicy = strings.TrimSpace(settings.CompactionRedactionPolicy)
+	if legacyPolicy == "" {
+		legacyPolicy = redaction.PolicyNone
+	}
+
+	redactionConfig = redaction.Config{
+		Kind:       strings.TrimSpace(settings.CompactionRedaction.Kind),
+		ConfigFile: strings.TrimSpace(settings.CompactionRedaction.ConfigFile),
+		FailOpen:   settings.CompactionRedaction.FailOpen,
+		Options:    settings.CompactionRedaction.Options,
+		External: redaction.ExternalConfig{
+			URL:     strings.TrimSpace(settings.CompactionRedaction.External.URL),
+			Timeout: time.Duration(settings.CompactionRedaction.External.TimeoutMs) * time.Millisecond,
+		},
 	}
 
 	if maxMsgs <= 0 {
@@ -43,7 +55,7 @@ func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsg
 		}
 	}
 
-	return enabled, maxMsgs, keepLast, maxChars, redactionPolicy
+	return enabled, maxMsgs, keepLast, maxChars, redactionConfig, legacyPolicy
 }
 
 func (app *Application) compactMessagesIfNeeded() error {
@@ -73,7 +85,9 @@ func (app *Application) compactMessagesIfNeeded() error {
 	}
 	summaryInput := buildCompactionInput(existingSummary, toSummarize)
 	if app.compactionRedactor != nil {
-		redacted, err := app.compactionRedactor.Redact(summaryInput)
+		redacted, err := app.compactionRedactor.Redact(redaction.Context{
+			ResourceType: redaction.ResourceTypeCompactionInput,
+		}, summaryInput)
 		if err != nil {
 			return err
 		}
@@ -85,7 +99,9 @@ func (app *Application) compactMessagesIfNeeded() error {
 	}
 	summary = strings.TrimSpace(summary)
 	if app.compactionRedactor != nil {
-		redacted, err := app.compactionRedactor.Redact(summary)
+		redacted, err := app.compactionRedactor.Redact(redaction.Context{
+			ResourceType: redaction.ResourceTypeCompactionSummary,
+		}, summary)
 		if err != nil {
 			return err
 		}

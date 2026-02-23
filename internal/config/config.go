@@ -13,17 +13,31 @@ const DefaultConfigPath = "~/.config/esa/config.toml"
 
 // Settings represents global settings that can be overridden by CLI flags
 type Settings struct {
-	ShowCommands          bool   `toml:"show_commands"`
-	ShowToolCalls         bool   `toml:"show_tool_calls"`
-	DefaultModel          string `toml:"default_model"`
-	PromptCompaction      bool   `toml:"prompt_compaction"`
-	CompactionMaxMessages int    `toml:"compaction_max_messages"`
-	CompactionKeepLast    int    `toml:"compaction_keep_last"`
-	CompactionMaxChars    int    `toml:"compaction_max_chars"`
-	CompactionRedaction   string `toml:"compaction_redaction_policy"`
-	RetryMaxAttempts      int    `toml:"retry_max_attempts"`
-	RetryBaseDelayMs      int    `toml:"retry_base_delay_ms"`
-	RetryMaxDelayMs       int    `toml:"retry_max_delay_ms"`
+	ShowCommands              bool            `toml:"show_commands"`
+	ShowToolCalls             bool            `toml:"show_tool_calls"`
+	DefaultModel              string          `toml:"default_model"`
+	PromptCompaction          bool            `toml:"prompt_compaction"`
+	CompactionMaxMessages     int             `toml:"compaction_max_messages"`
+	CompactionKeepLast        int             `toml:"compaction_keep_last"`
+	CompactionMaxChars        int             `toml:"compaction_max_chars"`
+	CompactionRedactionPolicy string          `toml:"compaction_redaction_policy"`
+	CompactionRedaction       RedactionConfig `toml:"compaction_redaction"`
+	RetryMaxAttempts          int             `toml:"retry_max_attempts"`
+	RetryBaseDelayMs          int             `toml:"retry_base_delay_ms"`
+	RetryMaxDelayMs           int             `toml:"retry_max_delay_ms"`
+}
+
+type RedactionConfig struct {
+	Kind       string                  `toml:"kind"`
+	ConfigFile string                  `toml:"config_file"`
+	FailOpen   bool                    `toml:"fail_open"`
+	Options    map[string]any          `toml:"options"`
+	External   ExternalRedactionConfig `toml:"external"`
+}
+
+type ExternalRedactionConfig struct {
+	URL       string `toml:"url"`
+	TimeoutMs int    `toml:"timeout_ms"`
 }
 
 // Config represents the global configuration structure
