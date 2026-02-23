@@ -5,11 +5,16 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+// SchemaVersionCurrent identifies the latest history schema version.
+const SchemaVersionCurrent = 1
+
 type ConversationHistory struct {
-	AgentPath   string                         `json:"agent_path"`
-	Model       string                         `json:"model"`
-	Messages    []openai.ChatCompletionMessage `json:"messages"`
-	MessageMeta []HistoryMessageMeta           `json:"message_meta,omitempty"`
+	SchemaVersion int                            `json:"schema_version"`
+	Commit        string                         `json:"commit,omitempty"`
+	AgentPath     string                         `json:"agent_path"`
+	Model         string                         `json:"model"`
+	Messages      []openai.ChatCompletionMessage `json:"messages"`
+	MessageMeta   []HistoryMessageMeta           `json:"message_meta,omitempty"`
 	// Compaction.Summary is trusted metadata stored out-of-band (not derived from message content).
 	Compaction *CompactionMeta `json:"compaction,omitempty"`
 	Usage      *token.Usage    `json:"usage,omitempty"` // nil in history files from before token tracking

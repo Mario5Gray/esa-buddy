@@ -12,6 +12,7 @@ import (
 	retry "github.com/avast/retry-go/v4"
 	"github.com/google/uuid"
 	"github.com/meain/esa/internal/agent"
+	"github.com/meain/esa/internal/buildinfo"
 	"github.com/meain/esa/internal/config"
 	"github.com/meain/esa/internal/conversation/history"
 	convtools "github.com/meain/esa/internal/conversation/tools"
@@ -770,12 +771,14 @@ func (app *Application) saveConversationHistory() {
 	}
 
 	historyData := history.ConversationHistory{
-		AgentPath:   app.agentPath,
-		Model:       modelString,
-		Messages:    app.messages,
-		MessageMeta: messageMeta,
-		Compaction:  compaction,
-		Usage:       usagePtr,
+		SchemaVersion: history.SchemaVersionCurrent,
+		Commit:        buildinfo.Commit,
+		AgentPath:     app.agentPath,
+		Model:         modelString,
+		Messages:      app.messages,
+		MessageMeta:   messageMeta,
+		Compaction:    compaction,
+		Usage:         usagePtr,
 	}
 
 	if data, err := json.Marshal(historyData); err == nil {

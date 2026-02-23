@@ -7,7 +7,7 @@ test-verbose:
 	CGO_ENABLED=0 go test -v ./...
 
 build:
-	CGO_ENABLED=0 go build -o esa .
+	CGO_ENABLED=0 go build -ldflags="-X github.com/meain/esa/internal/buildinfo.Commit=$$(git rev-parse --short HEAD)" -o esa .
 
 clean:
 	rm -f esa

@@ -1,6 +1,7 @@
 package history
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/sashabaranov/go-openai"
@@ -58,5 +59,28 @@ func TestEnsureMessageMetaFillsMissing(t *testing.T) {
 	}
 	if meta[1].Model != "custom" || meta[1].Role != "user" {
 		t.Fatalf("expected existing model to remain and role filled, got %+v", meta[1])
+	}
+}
+
+func TestConversationHistorySchemaMetadata(t *testing.T) {
+	h := ConversationHistory{
+		SchemaVersion: SchemaVersionCurrent,
+		Commit:        "abc123",
+		AgentPath:     "builtin:default",
+		Model:         "openai/gpt-test",
+	}
+	data, err := json.Marshal(h)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded["schema_version"] != float64(SchemaVersionCurrent) {
+		t.Fatalf("expected schema_version %d, got %v", SchemaVersionCurrent, decoded["schema_version"])
+	}
+	if decoded["commit"] != "abc123" {
+		t.Fatalf("expected commit to be set, got %v", decoded["commit"])
 	}
 }
