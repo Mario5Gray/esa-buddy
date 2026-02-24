@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/meain/esa/internal/agent"
@@ -105,7 +106,7 @@ func TestHandleToolCallsAllowedByGate(t *testing.T) {
 	if last.ToolCallID != "call_2" {
 		t.Fatalf("expected tool_call_id %q, got %q", "call_2", last.ToolCallID)
 	}
-	if last.Content == "" || last.Content[:7] != "Command" {
+	if last.Content == "" || !strings.HasPrefix(last.Content, "Command:") {
 		t.Fatalf("expected tool response content, got %q", last.Content)
 	}
 }

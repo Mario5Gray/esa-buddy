@@ -355,6 +355,7 @@ Create `~/.config/esa/config.toml` for global settings:
 [settings]
 show_commands = true                     # Show executed commands
 default_model = "openai/gpt-4o-mini"    # Default model
+compaction_token_threshold_pct = 75     # Trigger compaction at % of context window
 
 [model_aliases]
 # Create shortcuts for frequently used models
@@ -363,10 +364,35 @@ mini = "openai/gpt-4o-mini"
 groq = "groq/llama3-70b-8192"
 local = "ollama/llama3.2"
 
+[model_context_windows]
+# Map provider/model to context window tokens (used for token-aware compaction)
+openai/gpt-4o-mini = 128000
+groq/llama3-70b-8192 = 8192
+
 [providers.localai]
 # Add custom OpenAI-compatible providers
 base_url = "http://localhost:8080/v1"
 api_key_env = "LOCALAI_API_KEY"
+```
+
+Token-aware compaction uses `compaction_token_threshold_pct` and the
+`model_context_windows` map to trigger compaction when estimated tokens reach a
+percentage of the model window. If a model window is unknown, ESA falls back to
+the existing message/char thresholds.
+
+Logging defaults to a single plain-text log file with 30-day rotation. You can
+override it with:
+
+```toml
+[logging]
+level = "info"                # debug|info|warn|error
+format = "text"               # text|json
+file = "~/.cache/esa/esa.log"
+to_stdout = false
+to_file = true
+max_age_days = 30
+max_size_mb = 50
+max_backups = 0
 ```
 
 ### Agent Management

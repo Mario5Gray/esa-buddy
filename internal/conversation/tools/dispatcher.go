@@ -28,7 +28,11 @@ type Deps struct {
 	ShowToolCalls        bool
 	ShowProgress         bool
 	LastProgressLen      *int
-	Messages             *[]openai.ChatCompletionMessage
+	// AppendMessage is the single callback through which the dispatcher writes
+	// tool results into the conversation context. It must point to app.ingest
+	// so that all messages — regardless of origin — pass through the same
+	// Reference Monitor pipeline. Never write directly to a message slice.
+	AppendMessage        func(openai.ChatCompletionMessage)
 	ToolGate             security.GateChain
 	ExecTooler           executor.Executor
 	MCPManager           *mcp.MCPManager
@@ -278,10 +282,10 @@ func (d *Dispatcher) debugPrint(section string, v ...any) {
 }
 
 func (d *Dispatcher) appendMessage(msg openai.ChatCompletionMessage) {
-	if d.deps.Messages == nil {
+	if d.deps.AppendMessage == nil {
 		return
 	}
-	*d.deps.Messages = append(*d.deps.Messages, msg)
+	d.deps.AppendMessage(msg)
 }
 
 func (d *Dispatcher) lastProgressLen() int {

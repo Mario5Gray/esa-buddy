@@ -15,9 +15,11 @@ import (
 	"github.com/meain/esa/internal/buildinfo"
 	"github.com/meain/esa/internal/config"
 	"github.com/meain/esa/internal/conversation/history"
+	"github.com/meain/esa/internal/conversation/message"
 	convtools "github.com/meain/esa/internal/conversation/tools"
 	"github.com/meain/esa/internal/executor"
 	"github.com/meain/esa/internal/llm"
+	"github.com/meain/esa/internal/logging"
 	"github.com/meain/esa/internal/mcp"
 	"github.com/meain/esa/internal/options"
 	"github.com/meain/esa/internal/redaction"
@@ -27,6 +29,7 @@ import (
 	"github.com/meain/esa/internal/tools"
 	"github.com/meain/esa/internal/utils"
 	"github.com/sashabaranov/go-openai"
+	"log/slog"
 )
 
 const (
@@ -55,6 +58,7 @@ type Application struct {
 	messages                     []openai.ChatCompletionMessage
 	messageMeta                  []history.HistoryMessageMeta
 	usage                        token.Usage // accumulated token counts across LLM calls
+	logger                       *slog.Logger
 	debugPrint                   func(section string, v ...any)
 	showCommands                 bool
 	showToolCalls                bool
@@ -86,6 +90,10 @@ type Application struct {
 	counterProvider              tokenizer.CounterProvider
 	toolGate                     security.GateChain
 	execTooler                   executor.Executor
+	// transforms is the ordered pipeline of message.Transform functions applied
+	// by ingest() before any message enters app.messages. This is the Reference
+	// Monitor enforcement point — every write to the LLM context passes here.
+	transforms                   []message.Transform
 }
 
 // parseModel parses model string in format "provider/model" and
@@ -178,14 +186,30 @@ func (app *Application) AgentPath() string {
 	return app.agentPath
 }
 
-func (app *Application) AddMessage(role, content string) {
-	app.messages = append(app.messages, openai.ChatCompletionMessage{
-		Role:    role,
-		Content: content,
-	})
+// ingest is the single choke point for all writes to app.messages.
+// It runs msg through the registered transform pipeline (Reference Monitor,
+// Anderson 1972) before appending. No message reaches the LLM context without
+// passing here. System messages bypass the pipeline — they are trusted,
+// author-controlled, and must not be modified by data-layer transforms.
+// ingest is the single choke point for all writes to app.messages.
+// It runs msg through the registered transform pipeline (Reference Monitor,
+// Anderson 1972) before appending. Each transform is responsible for
+// declaring its own role policy via OnlyFor or SkipFor — ingest itself
+// is role-agnostic. No message reaches the LLM context without passing here.
+func (app *Application) ingest(msg openai.ChatCompletionMessage) {
+	for _, t := range app.transforms {
+		msg = t(msg)
+	}
+	app.messages = append(app.messages, msg)
 	if app.lastModelUsed != "" {
 		app.ensureMessageMeta(app.lastModelUsed)
 	}
+}
+
+// AddMessage appends a user or assistant message to the conversation context
+// through the ingest pipeline.
+func (app *Application) AddMessage(role, content string) {
+	app.ingest(message.New(role, content).Build())
 }
 
 func newMessageID() string {
@@ -361,6 +385,11 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		return nil, fmt.Errorf("%s: %w", errFailedToLoadConfig, err)
 	}
 
+	logger, _, err := logging.Setup(config.Logging)
+	if err != nil {
+		return nil, err
+	}
+
 	cacheDir, err := utils.SetupCacheDir()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", errFailedToSetupCache, err)
@@ -413,8 +442,9 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 			debug:             opts.DebugMode,
 			messageMeta:       messageMeta,
 			compactionSummary: compactionSummary,
+			logger:            logger,
 		}
-		app.debugPrint = createDebugPrinter(app.debug)
+		app.debugPrint = createDebugPrinter(app.debug, app.logger)
 
 		if opts.RetryChat && len(allMessages) > 1 {
 			// In retry mode, keep all messages up until the last user message
@@ -545,6 +575,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		messages:                    messages,
 		messageMeta:                 nil,
 		usage:                       usage,
+		logger:                      logger,
 		modelFlag:                   opts.Model,
 		config:                      config,
 		mcpManager:                  mcpManager,
@@ -575,6 +606,12 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 			},
 		},
 		execTooler: executor.DefaultExecutor{},
+		transforms: []message.Transform{
+			// Trust boundary: wrap external tool output so the model cannot
+			// mistake raw data for instruction. Each transform declares its
+			// own role scope via OnlyFor/SkipFor — see message/transforms.go.
+			message.Envelope,
+		},
 
 		debug:         opts.DebugMode,
 		showCommands:  showCommands && !showToolCalls && !opts.DebugMode,
@@ -582,7 +619,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		showProgress:  !opts.HideProgress && !opts.DebugMode && !(showCommands || showToolCalls),
 	}
 
-	app.debugPrint = createDebugPrinter(app.debug)
+	app.debugPrint = createDebugPrinter(app.debug, app.logger)
 	provider, model, info := app.parseModel()
 
 	app.debugPrint("Configuration",
@@ -649,23 +686,11 @@ func (app *Application) Run(opts options.CLIOptions) {
 
 func (app *Application) processInput(commandStr, input string) {
 	if len(input) > 0 {
-		app.messages = append(app.messages, openai.ChatCompletionMessage{
-			Role:    "user",
-			Content: input,
-		})
-		if app.lastModelUsed != "" {
-			app.ensureMessageMeta(app.lastModelUsed)
-		}
+		app.ingest(message.New("user", input).Build())
 	}
 
 	if len(commandStr) > 0 {
-		app.messages = append(app.messages, openai.ChatCompletionMessage{
-			Role:    "user",
-			Content: commandStr,
-		})
-		if app.lastModelUsed != "" {
-			app.ensureMessageMeta(app.lastModelUsed)
-		}
+		app.ingest(message.New("user", commandStr).Build())
 	}
 
 	// If no input from stdin or command line, use initial message from agent config
@@ -675,13 +700,7 @@ func (app *Application) processInput(commandStr, input string) {
 	}
 
 	if len(input) == 0 && len(commandStr) == 0 && app.agent.InitialMessage != "" {
-		app.messages = append(app.messages, openai.ChatCompletionMessage{
-			Role:    "user",
-			Content: prompt,
-		})
-		if app.lastModelUsed != "" {
-			app.ensureMessageMeta(app.lastModelUsed)
-		}
+		app.ingest(message.New("user", prompt).Build())
 	}
 }
 
@@ -704,10 +723,7 @@ func (app *Application) runConversationLoop(opts options.CLIOptions) {
 		}
 
 		assistantMsg := app.handleStreamResponse(stream)
-		app.messages = append(app.messages, assistantMsg)
-		if app.lastModelUsed != "" {
-			app.ensureMessageMeta(app.lastModelUsed)
-		}
+		app.ingest(assistantMsg)
 
 		// Save history after each assistant response
 		app.saveConversationHistory()
@@ -797,6 +813,7 @@ func (app *Application) ensureMessageMeta(modelString string) []history.HistoryM
 	return app.messageMeta
 }
 
+
 func (app *Application) toolDispatcher() *convtools.Dispatcher {
 	return convtools.NewDispatcher(convtools.Deps{
 		Agent:                app.agent,
@@ -804,7 +821,7 @@ func (app *Application) toolDispatcher() *convtools.Dispatcher {
 		ShowToolCalls:        app.showToolCalls,
 		ShowProgress:         app.showProgress,
 		LastProgressLen:      &app.lastProgressLen,
-		Messages:             &app.messages,
+		AppendMessage:        app.ingest,
 		ToolGate:             app.toolGate,
 		ExecTooler:           app.execTooler,
 		MCPManager:           app.mcpManager,

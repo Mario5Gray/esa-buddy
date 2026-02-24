@@ -48,6 +48,18 @@ type Config struct {
 	Providers           map[string]ProviderConfig `toml:"providers"`
 	Settings            Settings                  `toml:"settings"`
 	ModelStrategy       ModelStrategy             `toml:"model_strategy"`
+	Logging             LoggingConfig             `toml:"logging"`
+}
+
+type LoggingConfig struct {
+	Level      string `toml:"level"`
+	Format     string `toml:"format"`
+	File       string `toml:"file"`
+	ToStdout   bool   `toml:"to_stdout"`
+	ToFile     bool   `toml:"to_file"`
+	MaxAgeDays int    `toml:"max_age_days"`
+	MaxSizeMB  int    `toml:"max_size_mb"`
+	MaxBackups int    `toml:"max_backups"`
 }
 
 // ModelStrategy defines optional model selection by purpose/tool.
@@ -104,6 +116,16 @@ func LoadConfig(configPath string) (*Config, error) {
 				RetryMaxAttempts:            6,
 				RetryBaseDelayMs:            1000,
 				RetryMaxDelayMs:             60000,
+			},
+			Logging: LoggingConfig{
+				Level:      "info",
+				Format:     "text",
+				File:       "",
+				ToStdout:   false,
+				ToFile:     true,
+				MaxAgeDays: 30,
+				MaxSizeMB:  50,
+				MaxBackups: 0,
 			},
 		}
 		file, err := os.Create(configPath)
