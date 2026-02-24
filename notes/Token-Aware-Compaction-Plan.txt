@@ -1,0 +1,45 @@
+Token-Aware Compaction Plan
+
+Meaning
+Token-aware compaction triggers when the estimated token count reaches a
+percentage of the model context window. It becomes a third trigger alongside
+max messages and max chars. If the context window is unknown, existing triggers
+remain the only criteria.
+
+Internal Code Changes
+1. Model metadata source
+- Add a model context window lookup in `internal/llm/model.go` or a dedicated
+  metadata map, exposed as `ContextWindowTokens(modelString) (int, bool)`.
+
+2. Config and defaults
+- Add a new config key: `compaction_token_threshold_pct` (default: 75).
+- Optional: `compaction_token_threshold_min` to avoid tiny windows.
+- Threshold behavior should be OR with existing triggers.
+
+3. Compaction decision
+- In `internal/conversation/application_compaction.go`, compute:
+  - `tokenEstimate := app.estimateTokens(...)`
+  - `window := app.modelContextWindow()`
+  - `tokenThreshold = window * pct / 100`
+  - Trigger if `tokenEstimate >= tokenThreshold`
+- Keep existing message/char triggers as guardrails.
+- Optionally persist `LastTokenThreshold` in compaction metadata.
+
+4. Tests
+- Add tests in `application_compaction_test.go` for:
+  - token threshold trigger
+  - unknown window fallback
+  - precedence interaction with max messages/chars
+- Add model metadata tests if needed.
+
+Behavior Modifications
+- Compaction scales with model size.
+- Large-window models compact later; small-window models compact earlier.
+- Unknown window uses existing thresholds only.
+
+Patterns and Practices
+- Strategy-like threshold policy: token-based trigger alongside existing
+  thresholds, governed by explicit configuration.
+- Single responsibility: model window lookup belongs in model metadata, not
+  compaction logic.
+- Fail-safe behavior: if window unknown, do not attempt token trigger.

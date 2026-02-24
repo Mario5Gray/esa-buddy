@@ -33,9 +33,8 @@ axioms for how we build and how we collaborate.
    - Avoid hidden coupling; any coupling should be named and tested.
 
 5. **History should be durable.**
-   - Persist the minimal truth needed to recreate system state.
-   - Favor backwards-compatible metadata over ad-hoc text markers.
-
+   - Persist the minimal truth needed to recreate system state.   
+   
 6. **Tests are maps too.**
    - Tests document expected behavior and serve as proof of invariants.
    - If a rule matters, it should be testable.

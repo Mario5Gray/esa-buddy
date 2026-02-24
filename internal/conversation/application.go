@@ -46,44 +46,46 @@ const (
 )
 
 type Application struct {
-	agent                       agent.Agent
-	agentPath                   string
-	client                      *openai.Client
-	clients                     map[string]*openai.Client
-	debug                       bool
-	historyFile                 string
-	messages                    []openai.ChatCompletionMessage
-	messageMeta                 []history.HistoryMessageMeta
-	usage                       token.Usage // accumulated token counts across LLM calls
-	debugPrint                  func(section string, v ...any)
-	showCommands                bool
-	showToolCalls               bool
-	showProgress                bool
-	lastProgressLen             int
-	modelFlag                   string
-	config                      *config.Config
-	mcpManager                  *mcp.MCPManager
-	cliAskLevel                 string
-	prettyOutput                bool
-	thinkEnabled                *bool // nil = use agent default, true/false = CLI override
-	compactPrompt               bool
-	compactMaxMsgs              int
-	compactKeepLast             int
-	compactMaxChars             int
-	compactionRedactionPolicy   string
-	compactionRedactor          redaction.Policy
-	compactionSummary           string
-	retryMaxAttempts            uint
-	retryBaseDelay              time.Duration
-	retryMaxDelay               time.Duration
-	lastModelUsed               string
-	lastCompactionTrigger       string
-	lastCompactionMsgCount      int
-	lastCompactionCharCount     int
-	lastCompactionTokenEstimate int
-	counterProvider             tokenizer.CounterProvider
-	toolGate                    security.GateChain
-	execTooler                  executor.Executor
+	agent                        agent.Agent
+	agentPath                    string
+	client                       *openai.Client
+	clients                      map[string]*openai.Client
+	debug                        bool
+	historyFile                  string
+	messages                     []openai.ChatCompletionMessage
+	messageMeta                  []history.HistoryMessageMeta
+	usage                        token.Usage // accumulated token counts across LLM calls
+	debugPrint                   func(section string, v ...any)
+	showCommands                 bool
+	showToolCalls                bool
+	showProgress                 bool
+	lastProgressLen              int
+	modelFlag                    string
+	config                       *config.Config
+	mcpManager                   *mcp.MCPManager
+	cliAskLevel                  string
+	prettyOutput                 bool
+	thinkEnabled                 *bool // nil = use agent default, true/false = CLI override
+	compactPrompt                bool
+	compactMaxMsgs               int
+	compactKeepLast              int
+	compactMaxChars              int
+	compactionTokenThresholdPct  int
+	compactionRedactionPolicy    string
+	compactionRedactor           redaction.Policy
+	compactionSummary            string
+	retryMaxAttempts             uint
+	retryBaseDelay               time.Duration
+	retryMaxDelay                time.Duration
+	lastModelUsed                string
+	lastCompactionTrigger        string
+	lastCompactionMsgCount       int
+	lastCompactionCharCount      int
+	lastCompactionTokenEstimate  int
+	lastCompactionTokenThreshold int
+	counterProvider              tokenizer.CounterProvider
+	toolGate                     security.GateChain
+	execTooler                   executor.Executor
 }
 
 // parseModel parses model string in format "provider/model" and
@@ -501,7 +503,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 
 	showCommands := opts.ShowCommands || config.Settings.ShowCommands
 	showToolCalls := opts.ShowToolCalls || config.Settings.ShowToolCalls
-	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars, redactionConfig, legacyRedactionPolicy := normalizeCompactionSettings(config.Settings)
+	compactPrompt, compactMaxMsgs, compactKeepLast, compactMaxChars, compactionTokenThresholdPct, redactionConfig, legacyRedactionPolicy := normalizeCompactionSettings(config.Settings)
 	retryMaxAttempts, retryBaseDelay, retryMaxDelay := normalizeRetrySettings(config.Settings)
 	if opts.Compaction {
 		compactPrompt = true
@@ -535,30 +537,31 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 	}
 
 	app := &Application{
-		agent:                     agentCfg,
-		agentPath:                 opts.AgentPath,
-		client:                    client,
-		clients:                   map[string]*openai.Client{opts.Model: client},
-		historyFile:               historyFile,
-		messages:                  messages,
-		messageMeta:               nil,
-		usage:                     usage,
-		modelFlag:                 opts.Model,
-		config:                    config,
-		mcpManager:                mcpManager,
-		cliAskLevel:               opts.AskLevel,
-		prettyOutput:              opts.Pretty,
-		thinkEnabled:              thinkEnabled,
-		compactPrompt:             compactPrompt,
-		compactMaxMsgs:            compactMaxMsgs,
-		compactKeepLast:           compactKeepLast,
-		compactMaxChars:           compactMaxChars,
-		compactionRedactionPolicy: compactionRedactionPolicy,
-		compactionRedactor:        compactionRedactor,
-		compactionSummary:         compactionSummary,
-		retryMaxAttempts:          retryMaxAttempts,
-		retryBaseDelay:            retryBaseDelay,
-		retryMaxDelay:             retryMaxDelay,
+		agent:                       agentCfg,
+		agentPath:                   opts.AgentPath,
+		client:                      client,
+		clients:                     map[string]*openai.Client{opts.Model: client},
+		historyFile:                 historyFile,
+		messages:                    messages,
+		messageMeta:                 nil,
+		usage:                       usage,
+		modelFlag:                   opts.Model,
+		config:                      config,
+		mcpManager:                  mcpManager,
+		cliAskLevel:                 opts.AskLevel,
+		prettyOutput:                opts.Pretty,
+		thinkEnabled:                thinkEnabled,
+		compactPrompt:               compactPrompt,
+		compactMaxMsgs:              compactMaxMsgs,
+		compactKeepLast:             compactKeepLast,
+		compactMaxChars:             compactMaxChars,
+		compactionTokenThresholdPct: compactionTokenThresholdPct,
+		compactionRedactionPolicy:   compactionRedactionPolicy,
+		compactionRedactor:          compactionRedactor,
+		compactionSummary:           compactionSummary,
+		retryMaxAttempts:            retryMaxAttempts,
+		retryBaseDelay:              retryBaseDelay,
+		retryMaxDelay:               retryMaxDelay,
 		counterProvider: func() tokenizer.CounterProvider {
 			fallback := tokenizer.FallbackCounter{CharsPerToken: 4}
 			provider := tokenizer.NewMapProvider(fallback)
@@ -768,6 +771,7 @@ func (app *Application) saveConversationHistory() {
 		compaction.LastMsgCount = app.lastCompactionMsgCount
 		compaction.LastCharCount = app.lastCompactionCharCount
 		compaction.LastTokenEstimate = app.lastCompactionTokenEstimate
+		compaction.LastTokenThreshold = app.lastCompactionTokenThreshold
 	}
 
 	historyData := history.ConversationHistory{

@@ -27,16 +27,17 @@ type HistoryMessageMeta struct {
 }
 
 type CompactionMeta struct {
-	Enabled           bool   `json:"enabled"`
-	MaxMessages       int    `json:"max_messages"`
-	KeepLast          int    `json:"keep_last"`
-	MaxChars          int    `json:"max_chars"`
-	RedactionPolicy   string `json:"redaction_policy,omitempty"`
-	Summary           string `json:"summary,omitempty"`
-	LastTrigger       string `json:"last_trigger,omitempty"`
-	LastMsgCount      int    `json:"last_msg_count,omitempty"`
-	LastCharCount     int    `json:"last_char_count,omitempty"`
-	LastTokenEstimate int    `json:"last_token_estimate,omitempty"`
+	Enabled            bool   `json:"enabled"`
+	MaxMessages        int    `json:"max_messages"`
+	KeepLast           int    `json:"keep_last"`
+	MaxChars           int    `json:"max_chars"`
+	RedactionPolicy    string `json:"redaction_policy,omitempty"`
+	Summary            string `json:"summary,omitempty"`
+	LastTrigger        string `json:"last_trigger,omitempty"`
+	LastMsgCount       int    `json:"last_msg_count,omitempty"`
+	LastCharCount      int    `json:"last_char_count,omitempty"`
+	LastTokenEstimate  int    `json:"last_token_estimate,omitempty"`
+	LastTokenThreshold int    `json:"last_token_threshold,omitempty"`
 }
 
 func EnsureMessageMeta(existing []HistoryMessageMeta, messages []openai.ChatCompletionMessage, modelString string, idFn func() string) []HistoryMessageMeta {

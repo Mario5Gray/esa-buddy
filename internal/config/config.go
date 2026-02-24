@@ -13,18 +13,19 @@ const DefaultConfigPath = "~/.config/esa/config.toml"
 
 // Settings represents global settings that can be overridden by CLI flags
 type Settings struct {
-	ShowCommands              bool            `toml:"show_commands"`
-	ShowToolCalls             bool            `toml:"show_tool_calls"`
-	DefaultModel              string          `toml:"default_model"`
-	PromptCompaction          bool            `toml:"prompt_compaction"`
-	CompactionMaxMessages     int             `toml:"compaction_max_messages"`
-	CompactionKeepLast        int             `toml:"compaction_keep_last"`
-	CompactionMaxChars        int             `toml:"compaction_max_chars"`
-	CompactionRedactionPolicy string          `toml:"compaction_redaction_policy"`
-	CompactionRedaction       RedactionConfig `toml:"compaction_redaction"`
-	RetryMaxAttempts          int             `toml:"retry_max_attempts"`
-	RetryBaseDelayMs          int             `toml:"retry_base_delay_ms"`
-	RetryMaxDelayMs           int             `toml:"retry_max_delay_ms"`
+	ShowCommands                bool            `toml:"show_commands"`
+	ShowToolCalls               bool            `toml:"show_tool_calls"`
+	DefaultModel                string          `toml:"default_model"`
+	PromptCompaction            bool            `toml:"prompt_compaction"`
+	CompactionMaxMessages       int             `toml:"compaction_max_messages"`
+	CompactionKeepLast          int             `toml:"compaction_keep_last"`
+	CompactionMaxChars          int             `toml:"compaction_max_chars"`
+	CompactionTokenThresholdPct int             `toml:"compaction_token_threshold_pct"`
+	CompactionRedactionPolicy   string          `toml:"compaction_redaction_policy"`
+	CompactionRedaction         RedactionConfig `toml:"compaction_redaction"`
+	RetryMaxAttempts            int             `toml:"retry_max_attempts"`
+	RetryBaseDelayMs            int             `toml:"retry_base_delay_ms"`
+	RetryMaxDelayMs             int             `toml:"retry_max_delay_ms"`
 }
 
 type RedactionConfig struct {
@@ -42,10 +43,11 @@ type ExternalRedactionConfig struct {
 
 // Config represents the global configuration structure
 type Config struct {
-	ModelAliases  map[string]string         `toml:"model_aliases"`
-	Providers     map[string]ProviderConfig `toml:"providers"`
-	Settings      Settings                  `toml:"settings"`
-	ModelStrategy ModelStrategy             `toml:"model_strategy"`
+	ModelAliases        map[string]string         `toml:"model_aliases"`
+	ModelContextWindows map[string]int            `toml:"model_context_windows"`
+	Providers           map[string]ProviderConfig `toml:"providers"`
+	Settings            Settings                  `toml:"settings"`
+	ModelStrategy       ModelStrategy             `toml:"model_strategy"`
 }
 
 // ModelStrategy defines optional model selection by purpose/tool.
@@ -66,8 +68,9 @@ type ProviderConfig struct {
 // LoadConfig loads the configuration from the specified path
 func LoadConfig(configPath string) (*Config, error) {
 	config := &Config{
-		ModelAliases: make(map[string]string),
-		Providers:    make(map[string]ProviderConfig),
+		ModelAliases:        make(map[string]string),
+		ModelContextWindows: make(map[string]int),
+		Providers:           make(map[string]ProviderConfig),
 	}
 
 	// Expand home directory if needed
@@ -86,19 +89,21 @@ func LoadConfig(configPath string) (*Config, error) {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		// Create default config file
 		defaultConfig := Config{
-			ModelAliases: map[string]string{},
-			Providers:    map[string]ProviderConfig{},
+			ModelAliases:        map[string]string{},
+			ModelContextWindows: map[string]int{},
+			Providers:           map[string]ProviderConfig{},
 			Settings: Settings{
-				ShowCommands:          false,
-				ShowToolCalls:         false,
-				DefaultModel:          "",
-				PromptCompaction:      true,
-				CompactionMaxMessages: 40,
-				CompactionKeepLast:    12,
-				CompactionMaxChars:    20000,
-				RetryMaxAttempts:      6,
-				RetryBaseDelayMs:      1000,
-				RetryMaxDelayMs:       60000,
+				ShowCommands:                false,
+				ShowToolCalls:               false,
+				DefaultModel:                "",
+				PromptCompaction:            true,
+				CompactionMaxMessages:       40,
+				CompactionKeepLast:          12,
+				CompactionMaxChars:          20000,
+				CompactionTokenThresholdPct: 75,
+				RetryMaxAttempts:            6,
+				RetryBaseDelayMs:            1000,
+				RetryMaxDelayMs:             60000,
 			},
 		}
 		file, err := os.Create(configPath)

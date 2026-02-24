@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/meain/esa/internal/config"
+	"github.com/meain/esa/internal/llm"
 	"github.com/meain/esa/internal/redaction"
 	"github.com/sashabaranov/go-openai"
 )
@@ -15,9 +16,10 @@ const (
 	defaultCompactionMaxMessages = 40
 	defaultCompactionKeepLast    = 12
 	defaultCompactionMaxChars    = 20000
+	defaultCompactionTokenPct    = 75
 )
 
-func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsgs int, keepLast int, maxChars int, redactionConfig redaction.Config, legacyPolicy string) {
+func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsgs int, keepLast int, maxChars int, tokenThresholdPct int, redactionConfig redaction.Config, legacyPolicy string) {
 	enabled = settings.PromptCompaction
 	maxMsgs = settings.CompactionMaxMessages
 	keepLast = settings.CompactionKeepLast
@@ -38,6 +40,14 @@ func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsg
 		},
 	}
 
+	tokenThresholdPct = settings.CompactionTokenThresholdPct
+	if tokenThresholdPct <= 0 {
+		tokenThresholdPct = defaultCompactionTokenPct
+	}
+	if tokenThresholdPct > 100 {
+		tokenThresholdPct = 100
+	}
+
 	if maxMsgs <= 0 {
 		maxMsgs = defaultCompactionMaxMessages
 	}
@@ -55,7 +65,7 @@ func normalizeCompactionSettings(settings config.Settings) (enabled bool, maxMsg
 		}
 	}
 
-	return enabled, maxMsgs, keepLast, maxChars, redactionConfig, legacyPolicy
+	return enabled, maxMsgs, keepLast, maxChars, tokenThresholdPct, redactionConfig, legacyPolicy
 }
 
 func (app *Application) compactMessagesIfNeeded() error {
@@ -70,8 +80,9 @@ func (app *Application) compactMessagesIfNeeded() error {
 	msgCount := len(app.messages)
 	charCount := messagesSize(app.messages)
 	tokenEstimate := app.estimateTokens(buildTokenEstimateInput(app.messages))
+	tokenThreshold := app.compactionTokenThreshold(tokenEstimate)
 
-	if msgCount <= app.compactMaxMsgs && charCount <= app.compactMaxChars {
+	if !shouldCompact(msgCount, app.compactMaxMsgs, charCount, app.compactMaxChars, tokenEstimate, tokenThreshold) {
 		return nil
 	}
 
@@ -115,7 +126,46 @@ func (app *Application) compactMessagesIfNeeded() error {
 	app.lastCompactionMsgCount = msgCount
 	app.lastCompactionCharCount = charCount
 	app.lastCompactionTokenEstimate = tokenEstimate
+	app.lastCompactionTokenThreshold = tokenThreshold
 	return nil
+}
+
+func shouldCompact(msgCount, maxMsgs, charCount, maxChars, tokenEstimate, tokenThreshold int) bool {
+	if msgCount > maxMsgs || charCount > maxChars {
+		return true
+	}
+	if tokenThreshold > 0 && tokenEstimate > 0 && tokenEstimate >= tokenThreshold {
+		return true
+	}
+	return false
+}
+
+func (app *Application) compactionTokenThreshold(tokenEstimate int) int {
+	if tokenEstimate <= 0 {
+		return 0
+	}
+	if app.compactionTokenThresholdPct <= 0 {
+		return 0
+	}
+	windowTokens, ok := app.modelContextWindowTokens()
+	if !ok || windowTokens <= 0 {
+		return 0
+	}
+	return (windowTokens * app.compactionTokenThresholdPct) / 100
+}
+
+func (app *Application) modelContextWindowTokens() (int, bool) {
+	if app.config == nil {
+		return 0, false
+	}
+	provider, model, _ := app.parseModel()
+	if provider == "" || model == "" {
+		return 0, false
+	}
+	tools := llm.ModelContextTools{
+		Overrides: app.config.ModelContextWindows,
+	}
+	return tools.ContextWindowTokens(fmt.Sprintf("%s/%s", provider, model))
 }
 
 func (app *Application) summarizeConversation(input string) (string, error) {

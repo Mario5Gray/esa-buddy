@@ -30,7 +30,7 @@
 - [x] Store summary in history metadata instead of system message
 
 ### 5. Prompt Compaction Phase 2 (Project Overview)
-- [ ] Token-aware trigger based on model context window
+- [x] Token-aware trigger based on model context window
 - [ ] Virtualize large tool outputs into artifacts (cache files)
 - [ ] Artifact registry with read/search retrieval tools
 - [ ] Multi-layer compaction: summary + recent + artifact refs

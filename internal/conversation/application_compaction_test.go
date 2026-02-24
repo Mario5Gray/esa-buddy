@@ -90,3 +90,18 @@ func TestMessageSizeCountsToolCallFields(t *testing.T) {
 		t.Fatalf("expected tool call fields to contribute to size, got %d", size)
 	}
 }
+
+func TestShouldCompactTokenThreshold(t *testing.T) {
+	if !shouldCompact(10, 100, 100, 10000, 800, 750) {
+		t.Fatalf("expected token threshold to trigger compaction")
+	}
+	if shouldCompact(10, 100, 100, 10000, 700, 750) {
+		t.Fatalf("did not expect token threshold to trigger compaction")
+	}
+	if shouldCompact(10, 100, 100, 10000, 0, 750) {
+		t.Fatalf("did not expect compaction with zero token estimate")
+	}
+	if shouldCompact(10, 100, 100, 10000, 800, 0) {
+		t.Fatalf("did not expect compaction with zero token threshold")
+	}
+}
