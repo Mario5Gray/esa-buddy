@@ -14,6 +14,7 @@ import (
 	"github.com/meain/esa/internal/mcp"
 	"github.com/meain/esa/internal/options"
 	"github.com/meain/esa/internal/security"
+	toolsearch "github.com/meain/esa/internal/tools"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -23,11 +24,11 @@ const (
 )
 
 type Deps struct {
-	Agent                agent.Agent
-	ShowCommands         bool
-	ShowToolCalls        bool
-	ShowProgress         bool
-	LastProgressLen      *int
+	Agent           agent.Agent
+	ShowCommands    bool
+	ShowToolCalls   bool
+	ShowProgress    bool
+	LastProgressLen *int
 	// AppendMessage is the single callback through which the dispatcher writes
 	// tool results into the conversation context. It must point to app.ingest
 	// so that all messages — regardless of origin — pass through the same
@@ -39,6 +40,8 @@ type Deps struct {
 	DebugPrint           func(section string, v ...any)
 	ParseModel           func() (provider string, model string, info llm.ProviderInfo)
 	GetEffectiveAskLevel func() string
+	SearchTools          func(query string, limit int) toolsearch.ToolSearchResult
+	SetToolSelection     func(names []string)
 }
 
 type Dispatcher struct {
@@ -58,6 +61,11 @@ func (d *Dispatcher) HandleToolCalls(toolCalls []openai.ToolCall, opts options.C
 	_ = opts
 	for _, toolCall := range toolCalls {
 		if toolCall.Type != "function" || toolCall.Function.Name == "" {
+			continue
+		}
+
+		if toolCall.Function.Name == toolsearch.ToolSearchName {
+			d.handleToolSearch(toolCall)
 			continue
 		}
 
@@ -178,6 +186,44 @@ func (d *Dispatcher) HandleToolCalls(toolCalls []openai.ToolCall, opts options.C
 			ToolCallID: toolCall.ID,
 		})
 	}
+}
+
+func (d *Dispatcher) handleToolSearch(toolCall openai.ToolCall) {
+	if d.deps.SearchTools == nil {
+		return
+	}
+
+	type searchArgs struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	var args searchArgs
+	if toolCall.Function.Arguments != "" {
+		_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+	}
+
+	result := d.deps.SearchTools(args.Query, args.Limit)
+	names := make([]string, 0, len(result.Results))
+	for _, item := range result.Results {
+		if item.Name != "" {
+			names = append(names, item.Name)
+		}
+	}
+	if d.deps.SetToolSelection != nil {
+		d.deps.SetToolSelection(names)
+	}
+
+	payload, err := json.Marshal(result)
+	if err != nil {
+		payload = []byte("tool search failed to serialize results")
+	}
+
+	d.appendMessage(openai.ChatCompletionMessage{
+		Role:       "tool",
+		Name:       toolCall.Function.Name,
+		Content:    string(payload),
+		ToolCallID: toolCall.ID,
+	})
 }
 
 // HandleMCPToolCall handles tool calls for MCP servers

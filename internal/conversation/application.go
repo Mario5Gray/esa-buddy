@@ -78,6 +78,10 @@ type Application struct {
 	compactionRedactionPolicy    string
 	compactionRedactor           redaction.Policy
 	compactionSummary            string
+	toolSearchEnabled            bool
+	toolSearchLimit              int
+	toolSearchSelection          map[string]struct{}
+	toolSearchIndex              *tools.SearchIndex
 	retryMaxAttempts             uint
 	retryBaseDelay               time.Duration
 	retryMaxDelay                time.Duration
@@ -93,7 +97,7 @@ type Application struct {
 	// transforms is the ordered pipeline of message.Transform functions applied
 	// by ingest() before any message enters app.messages. This is the Reference
 	// Monitor enforcement point — every write to the LLM context passes here.
-	transforms                   []message.Transform
+	transforms []message.Transform
 }
 
 // parseModel parses model string in format "provider/model" and
@@ -585,6 +589,12 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		compactPrompt = false
 	}
 
+	toolSearchEnabled := config.Settings.ToolSearchEnabled
+	toolSearchLimit := config.Settings.ToolSearchLimit
+	if toolSearchLimit <= 0 {
+		toolSearchLimit = 8
+	}
+
 	compactionRedactionPolicy := legacyRedactionPolicy
 	var compactionRedactor redaction.Policy
 	if compactPrompt {
@@ -633,6 +643,9 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		compactionRedactionPolicy:   compactionRedactionPolicy,
 		compactionRedactor:          compactionRedactor,
 		compactionSummary:           compactionSummary,
+		toolSearchEnabled:           toolSearchEnabled,
+		toolSearchLimit:             toolSearchLimit,
+		toolSearchSelection:         map[string]struct{}{},
 		retryMaxAttempts:            retryMaxAttempts,
 		retryBaseDelay:              retryBaseDelay,
 		retryMaxDelay:               retryMaxDelay,
@@ -755,13 +768,21 @@ func (app *Application) processInitialMessage(message string) (string, error) {
 }
 
 func (app *Application) runConversationLoop(ctx context.Context, opts options.CLIOptions) error {
-	openAITools := tools.ConvertFunctionsToTools(app.agent.Functions)
+	allTools := tools.ConvertFunctionsToTools(app.agent.Functions)
 
 	// Add MCP tools
 	mcpTools := app.mcpManager.GetAllTools()
-	openAITools = append(openAITools, mcpTools...)
+	allTools = append(allTools, mcpTools...)
+
+	if app.toolSearchEnabled {
+		app.toolSearchIndex = tools.BuildSearchIndex(app.agent.Functions, mcpTools)
+	}
 
 	for {
+		openAITools := allTools
+		if app.toolSearchEnabled {
+			openAITools = app.resolveToolSearchTools(allTools)
+		}
 		stream, err := app.createChatCompletionWithRetry(ctx, openAITools)
 		if err != nil {
 			return fmt.Errorf("ChatCompletionStream error: %w", err)
@@ -862,6 +883,52 @@ func (app *Application) ensureMessageMeta(modelString string) []history.HistoryM
 	return app.messageMeta
 }
 
+func (app *Application) searchTools(query string, limit int) tools.ToolSearchResult {
+	if app.toolSearchIndex == nil {
+		return tools.ToolSearchResult{Query: query}
+	}
+	return app.toolSearchIndex.Search(query, limit)
+}
+
+func (app *Application) setToolSearchSelection(names []string) {
+	if len(names) == 0 {
+		app.toolSearchSelection = map[string]struct{}{}
+		return
+	}
+	selection := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name != "" {
+			selection[name] = struct{}{}
+		}
+	}
+	app.toolSearchSelection = selection
+}
+
+func (app *Application) resolveToolSearchTools(allTools []openai.Tool) []openai.Tool {
+	searchTool := tools.SearchToolDefinition()
+	if len(app.toolSearchSelection) == 0 {
+		return []openai.Tool{searchTool}
+	}
+	filtered := filterToolsByName(allTools, app.toolSearchSelection)
+	filtered = append(filtered, searchTool)
+	return filtered
+}
+
+func filterToolsByName(allTools []openai.Tool, selection map[string]struct{}) []openai.Tool {
+	if len(selection) == 0 {
+		return nil
+	}
+	out := make([]openai.Tool, 0, len(selection))
+	for _, tool := range allTools {
+		if tool.Function == nil || tool.Function.Name == "" {
+			continue
+		}
+		if _, ok := selection[tool.Function.Name]; ok {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
 
 func (app *Application) toolDispatcher() *convtools.Dispatcher {
 	return convtools.NewDispatcher(convtools.Deps{
@@ -877,6 +944,8 @@ func (app *Application) toolDispatcher() *convtools.Dispatcher {
 		DebugPrint:           app.debugPrint,
 		ParseModel:           app.parseModel,
 		GetEffectiveAskLevel: app.getEffectiveAskLevel,
+		SearchTools:          app.searchTools,
+		SetToolSelection:     app.setToolSearchSelection,
 	})
 }
 

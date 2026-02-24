@@ -23,6 +23,8 @@ type Settings struct {
 	CompactionTokenThresholdPct int             `toml:"compaction_token_threshold_pct"`
 	CompactionRedactionPolicy   string          `toml:"compaction_redaction_policy"`
 	CompactionRedaction         RedactionConfig `toml:"compaction_redaction"`
+	ToolSearchEnabled           bool            `toml:"tool_search_enabled"`
+	ToolSearchLimit             int             `toml:"tool_search_limit"`
 	RetryMaxAttempts            int             `toml:"retry_max_attempts"`
 	RetryBaseDelayMs            int             `toml:"retry_base_delay_ms"`
 	RetryMaxDelayMs             int             `toml:"retry_max_delay_ms"`
@@ -113,6 +115,8 @@ func LoadConfig(configPath string) (*Config, error) {
 				CompactionKeepLast:          12,
 				CompactionMaxChars:          20000,
 				CompactionTokenThresholdPct: 75,
+				ToolSearchEnabled:           false,
+				ToolSearchLimit:             8,
 				RetryMaxAttempts:            6,
 				RetryBaseDelayMs:            1000,
 				RetryMaxDelayMs:             60000,
