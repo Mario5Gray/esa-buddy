@@ -14,6 +14,7 @@ import (
 	"github.com/meain/esa/internal/mcp"
 	"github.com/meain/esa/internal/options"
 	"github.com/meain/esa/internal/security"
+	"github.com/meain/esa/internal/telemetry"
 	toolsearch "github.com/meain/esa/internal/tools"
 	"github.com/sashabaranov/go-openai"
 )
@@ -42,6 +43,7 @@ type Deps struct {
 	GetEffectiveAskLevel func() string
 	SearchTools          func(query string, limit int) toolsearch.ToolSearchResult
 	SetToolSelection     func(names []string)
+	Telemetry            telemetry.Telemetry
 }
 
 type Dispatcher struct {
@@ -114,6 +116,12 @@ func (d *Dispatcher) HandleToolCalls(toolCalls []openai.ToolCall, opts options.C
 			ToolName: matchedFunc.Name,
 			ArgsJSON: toolCall.Function.Arguments,
 		}
+		if d.deps.Telemetry != nil {
+			d.deps.Telemetry.ToolCallStarted(telemetry.ToolCallContext{
+				ToolName: matchedFunc.Name,
+				ArgsSize: len(toolCall.Function.Arguments),
+			})
+		}
 		// Tool execution is gated by an ordered policy chain. The first gate to
 		// return Allow or Deny wins; Abstain continues; all-abstain defaults to Deny.
 		decision, _, err := d.deps.ToolGate.Evaluate(intent)
@@ -151,6 +159,12 @@ func (d *Dispatcher) HandleToolCalls(toolCalls []openai.ToolCall, opts options.C
 			fmt.Sprintf("Output: %s", result))
 
 		if err != nil {
+			if d.deps.Telemetry != nil {
+				d.deps.Telemetry.Error(telemetry.ErrorContext{
+					Stage: "tool_execution",
+					Error: err.Error(),
+				})
+			}
 			d.debugPrint("Function Error", err)
 			// Clear progress line before showing error
 			if d.deps.ShowProgress && d.lastProgressLen() > 0 {
@@ -185,6 +199,12 @@ func (d *Dispatcher) HandleToolCalls(toolCalls []openai.ToolCall, opts options.C
 			Content:    content,
 			ToolCallID: toolCall.ID,
 		})
+		if d.deps.Telemetry != nil {
+			d.deps.Telemetry.ToolCallCompleted(telemetry.ToolCallContext{
+				ToolName: matchedFunc.Name,
+				ArgsSize: len(toolCall.Function.Arguments),
+			})
+		}
 	}
 }
 
@@ -275,6 +295,12 @@ func (d *Dispatcher) HandleMCPToolCall(toolCall openai.ToolCall, opts options.CL
 		fmt.Sprintf("Output: %s", result))
 
 	if err != nil {
+		if d.deps.Telemetry != nil {
+			d.deps.Telemetry.Error(telemetry.ErrorContext{
+				Stage: "mcp_tool_execution",
+				Error: err.Error(),
+			})
+		}
 		d.debugPrint("MCP Tool Error", err)
 		// Clear progress line before showing error
 		if d.deps.ShowProgress && d.lastProgressLen() > 0 {

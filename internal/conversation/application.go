@@ -24,6 +24,7 @@ import (
 	"github.com/meain/esa/internal/options"
 	"github.com/meain/esa/internal/redaction"
 	"github.com/meain/esa/internal/security"
+	"github.com/meain/esa/internal/telemetry"
 	"github.com/meain/esa/internal/token"
 	"github.com/meain/esa/internal/tokenizer"
 	"github.com/meain/esa/internal/tools"
@@ -59,6 +60,7 @@ type Application struct {
 	messageMeta                  []history.HistoryMessageMeta
 	usage                        token.Usage // accumulated token counts across LLM calls
 	logger                       *slog.Logger
+	telemetry                    telemetry.Telemetry
 	debugPrint                   func(section string, v ...any)
 	showCommands                 bool
 	showToolCalls                bool
@@ -399,6 +401,14 @@ func (app *Application) createChatCompletionWithRetry(ctx context.Context, tools
 		retry.OnRetry(func(n uint, err error) {
 			app.debugPrint("Rate Limit",
 				fmt.Sprintf("Rate limit hit, retrying (attempt %d/%d): %v", n+1, app.retryMaxAttempts, err))
+			if app.telemetry != nil {
+				app.telemetry.Retry(telemetry.RetryContext{
+					Attempt: int(n + 1),
+					Max:     int(app.retryMaxAttempts),
+					Error:   fmt.Sprintf("%v", err),
+					Delay:   app.retryBaseDelay,
+				})
+			}
 		}),
 	)
 	if err != nil {
@@ -436,6 +446,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
+	telemetrySink := telemetry.NewSlogAdapter(logger)
 
 	cacheDir, err := utils.SetupCacheDir()
 	if err != nil {
@@ -490,6 +501,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 			messageMeta:       messageMeta,
 			compactionSummary: compactionSummary,
 			logger:            logger,
+			telemetry:         telemetrySink,
 		}
 		app.debugPrint = createDebugPrinter(app.debug, app.logger)
 
@@ -629,6 +641,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		messageMeta:                 nil,
 		usage:                       usage,
 		logger:                      logger,
+		telemetry:                   telemetrySink,
 		modelFlag:                   opts.Model,
 		config:                      config,
 		mcpManager:                  mcpManager,
@@ -738,6 +751,7 @@ func (app *Application) Run(opts options.CLIOptions) {
 	}
 
 	if err := app.runConversationLoop(context.Background(), opts); err != nil {
+		app.telemetryError("conversation_loop", err)
 		log.Fatalf("Error: %v", err)
 	}
 }
@@ -774,25 +788,24 @@ func (app *Application) runConversationLoop(ctx context.Context, opts options.CL
 	mcpTools := app.mcpManager.GetAllTools()
 	allTools = append(allTools, mcpTools...)
 
-	if app.toolSearchEnabled {
-		app.toolSearchIndex = tools.BuildSearchIndex(app.agent.Functions, mcpTools)
-	}
+	app.toolSearchIndex = tools.BuildSearchIndex(app.agent.Functions, mcpTools)
 
 	for {
-		openAITools := allTools
-		if app.toolSearchEnabled {
-			openAITools = app.resolveToolSearchTools(allTools)
-		}
+		app.telemetryTurnStarted()
+		openAITools := app.resolveToolSearchTools(allTools)
 		stream, err := app.createChatCompletionWithRetry(ctx, openAITools)
 		if err != nil {
+			app.telemetryError("chat_completion", err)
 			return fmt.Errorf("ChatCompletionStream error: %w", err)
 		}
 
 		assistantMsg, err := app.handleStreamResponse(stream)
 		if err != nil {
+			app.telemetryError("stream_response", err)
 			return err
 		}
 		app.ingest(assistantMsg)
+		app.telemetryTurnCompleted()
 
 		// Save history after each assistant response
 		app.saveConversationHistory()
@@ -906,12 +919,14 @@ func (app *Application) setToolSearchSelection(names []string) {
 
 func (app *Application) resolveToolSearchTools(allTools []openai.Tool) []openai.Tool {
 	searchTool := tools.SearchToolDefinition()
+	if app.toolSearchEnabled {
+		return append(allTools, searchTool)
+	}
 	if len(app.toolSearchSelection) == 0 {
 		return []openai.Tool{searchTool}
 	}
 	filtered := filterToolsByName(allTools, app.toolSearchSelection)
-	filtered = append(filtered, searchTool)
-	return filtered
+	return append(filtered, searchTool)
 }
 
 func filterToolsByName(allTools []openai.Tool, selection map[string]struct{}) []openai.Tool {
@@ -930,6 +945,42 @@ func filterToolsByName(allTools []openai.Tool, selection map[string]struct{}) []
 	return out
 }
 
+func (app *Application) telemetryTurnStarted() {
+	if app.telemetry == nil {
+		return
+	}
+	provider, model, _ := app.parseModel()
+	app.telemetry.TurnStarted(telemetry.TurnContext{
+		TurnIndex:    len(app.messages),
+		MessageCount: len(app.messages),
+		Provider:     provider,
+		Model:        model,
+	})
+}
+
+func (app *Application) telemetryTurnCompleted() {
+	if app.telemetry == nil {
+		return
+	}
+	provider, model, _ := app.parseModel()
+	app.telemetry.TurnCompleted(telemetry.TurnContext{
+		TurnIndex:    len(app.messages),
+		MessageCount: len(app.messages),
+		Provider:     provider,
+		Model:        model,
+	})
+}
+
+func (app *Application) telemetryError(stage string, err error) {
+	if app.telemetry == nil || err == nil {
+		return
+	}
+	app.telemetry.Error(telemetry.ErrorContext{
+		Stage: stage,
+		Error: err.Error(),
+	})
+}
+
 func (app *Application) toolDispatcher() *convtools.Dispatcher {
 	return convtools.NewDispatcher(convtools.Deps{
 		Agent:                app.agent,
@@ -946,6 +997,7 @@ func (app *Application) toolDispatcher() *convtools.Dispatcher {
 		GetEffectiveAskLevel: app.getEffectiveAskLevel,
 		SearchTools:          app.searchTools,
 		SetToolSelection:     app.setToolSearchSelection,
+		Telemetry:            app.telemetry,
 	})
 }
 

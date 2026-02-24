@@ -39,6 +39,14 @@
 - [ ] Redaction/PII policy and opt-out modes
 - [ ] Compaction metrics and history metadata
 
+### 6. Instrumentation
+- [ ] Conversation position introspection (turn index, tool call index, last tool)
+- [ ] Expose effective system prompt (merged/processed prompt chain)
+- [ ] Expose effective context snapshot (system + summary + recent)
+- [ ] Trace-friendly event stream for tool calls, compaction, and retries
+- [ ] OpenTelemetry integration hooks (spans + attributes)
+- [ ] Grafana-friendly logging and metrics emitters
+
 ## Phase 1.5: Redaction & Analysis
 
 ### 1. External Redaction Analyzer

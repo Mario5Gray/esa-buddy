@@ -9,6 +9,7 @@ import (
 	"github.com/meain/esa/internal/config"
 	"github.com/meain/esa/internal/llm"
 	"github.com/meain/esa/internal/redaction"
+	"github.com/meain/esa/internal/telemetry"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -127,6 +128,15 @@ func (app *Application) compactMessagesIfNeeded() error {
 	app.lastCompactionCharCount = charCount
 	app.lastCompactionTokenEstimate = tokenEstimate
 	app.lastCompactionTokenThreshold = tokenThreshold
+	if app.telemetry != nil {
+		app.telemetry.Compaction(telemetry.CompactionContext{
+			Trigger:        app.lastCompactionTrigger,
+			MsgCount:       msgCount,
+			CharCount:      charCount,
+			TokenEstimate:  tokenEstimate,
+			TokenThreshold: tokenThreshold,
+		})
+	}
 	return nil
 }
 
