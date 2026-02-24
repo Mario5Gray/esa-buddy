@@ -3,7 +3,6 @@ package conversation
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 
@@ -75,7 +74,7 @@ func filterThinkTags(chunk string, inThink *bool, buf *strings.Builder) string {
 	return out.String()
 }
 
-func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream) openai.ChatCompletionMessage {
+func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream) (openai.ChatCompletionMessage, error) {
 	defer stream.Close()
 
 	var assistantMsg openai.ChatCompletionMessage
@@ -93,7 +92,7 @@ func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream
 			break
 		}
 		if err != nil {
-			log.Fatalf("Stream error: %v", err)
+			return openai.ChatCompletionMessage{}, fmt.Errorf("stream error: %w", err)
 		}
 
 		// The final stream chunk carries token usage for the entire request.
@@ -161,5 +160,5 @@ func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream
 
 	assistantMsg.Role = "assistant"
 	assistantMsg.Content = fullContent.String()
-	return assistantMsg
+	return assistantMsg, nil
 }

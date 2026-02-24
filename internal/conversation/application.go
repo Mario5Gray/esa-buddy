@@ -223,8 +223,8 @@ func (app *Application) Messages() []openai.ChatCompletionMessage {
 	return app.messages
 }
 
-func (app *Application) RunConversationLoop(opts options.CLIOptions) {
-	app.runConversationLoop(opts)
+func (app *Application) RunConversationLoop(ctx context.Context, opts options.CLIOptions) error {
+	return app.runConversationLoop(ctx, opts)
 }
 
 func (app *Application) GetSystemPrompt() (string, error) {
@@ -277,6 +277,49 @@ func (app *Application) SetAgent(agentCfg agent.Agent, agentPath string) {
 	app.agentPath = agentPath
 }
 
+// ClearMessages resets the conversation to the system message only.
+func (app *Application) ClearMessages() {
+	if len(app.messages) == 0 {
+		return
+	}
+	app.messages = app.messages[:1]
+}
+
+// UndoLastExchange removes the last user+assistant message pair.
+// Returns true if a pair was removed, false if there was nothing to undo.
+func (app *Application) UndoLastExchange() bool {
+	// Find last assistant message
+	assistantIdx := -1
+	for i := len(app.messages) - 1; i >= 0; i-- {
+		if app.messages[i].Role == "assistant" {
+			assistantIdx = i
+			break
+		}
+	}
+	if assistantIdx < 0 {
+		return false
+	}
+	// Find the user message immediately before it
+	userIdx := -1
+	for i := assistantIdx - 1; i >= 0; i-- {
+		if app.messages[i].Role == "user" {
+			userIdx = i
+			break
+		}
+	}
+	if userIdx < 0 {
+		return false
+	}
+	// Remove both messages
+	app.messages = append(app.messages[:userIdx], app.messages[assistantIdx+1:]...)
+	return true
+}
+
+// Usage returns a snapshot of accumulated token counts.
+func (app *Application) Usage() token.Usage {
+	return app.usage
+}
+
 // isRateLimitError checks if the error is a rate limit error (429)
 func isRateLimitError(err error) bool {
 	if err == nil {
@@ -310,7 +353,7 @@ func normalizeRetrySettings(settings config.Settings) (uint, time.Duration, time
 }
 
 // createChatCompletionWithRetry creates a chat completion stream with retry logic for rate limiting
-func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*openai.ChatCompletionStream, error) {
+func (app *Application) createChatCompletionWithRetry(ctx context.Context, tools []openai.Tool) (*openai.ChatCompletionStream, error) {
 	var stream *openai.ChatCompletionStream
 
 	if err := app.compactMessagesIfNeeded(); err != nil {
@@ -335,7 +378,7 @@ func (app *Application) createChatCompletionWithRetry(tools []openai.Tool) (*ope
 	err = retry.Do(
 		func() error {
 			var callErr error
-			stream, callErr = client.CreateChatCompletionStream(context.Background(), req)
+			stream, callErr = client.CreateChatCompletionStream(ctx, req)
 			if callErr == nil {
 				return nil
 			}
@@ -681,7 +724,9 @@ func (app *Application) Run(opts options.CLIOptions) {
 		app.processInput(opts.CommandStr, input)
 	}
 
-	app.runConversationLoop(opts)
+	if err := app.runConversationLoop(context.Background(), opts); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
 }
 
 func (app *Application) processInput(commandStr, input string) {
@@ -709,7 +754,7 @@ func (app *Application) processInitialMessage(message string) (string, error) {
 	return app.processSystemPrompt(message)
 }
 
-func (app *Application) runConversationLoop(opts options.CLIOptions) {
+func (app *Application) runConversationLoop(ctx context.Context, opts options.CLIOptions) error {
 	openAITools := tools.ConvertFunctionsToTools(app.agent.Functions)
 
 	// Add MCP tools
@@ -717,12 +762,15 @@ func (app *Application) runConversationLoop(opts options.CLIOptions) {
 	openAITools = append(openAITools, mcpTools...)
 
 	for {
-		stream, err := app.createChatCompletionWithRetry(openAITools)
+		stream, err := app.createChatCompletionWithRetry(ctx, openAITools)
 		if err != nil {
-			log.Fatalf("ChatCompletionStream error: %v", err)
+			return fmt.Errorf("ChatCompletionStream error: %w", err)
 		}
 
-		assistantMsg := app.handleStreamResponse(stream)
+		assistantMsg, err := app.handleStreamResponse(stream)
+		if err != nil {
+			return err
+		}
 		app.ingest(assistantMsg)
 
 		// Save history after each assistant response
@@ -737,6 +785,7 @@ func (app *Application) runConversationLoop(opts options.CLIOptions) {
 		// Save history after processing tool calls
 		app.saveConversationHistory()
 	}
+	return nil
 }
 
 func (app *Application) getModel() string {
