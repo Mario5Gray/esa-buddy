@@ -44,7 +44,7 @@ type ExternalRedactionConfig struct {
 // Config represents the global configuration structure
 type Config struct {
 	ModelAliases        map[string]string         `toml:"model_aliases"`
-	ModelContextWindows map[string]int            `toml:"model_context_windows"`
+	ModelContextWindows map[string]map[string]int `toml:"model_context_windows"`
 	Providers           map[string]ProviderConfig `toml:"providers"`
 	Settings            Settings                  `toml:"settings"`
 	ModelStrategy       ModelStrategy             `toml:"model_strategy"`
@@ -81,7 +81,7 @@ type ProviderConfig struct {
 func LoadConfig(configPath string) (*Config, error) {
 	config := &Config{
 		ModelAliases:        make(map[string]string),
-		ModelContextWindows: make(map[string]int),
+		ModelContextWindows: make(map[string]map[string]int),
 		Providers:           make(map[string]ProviderConfig),
 	}
 
@@ -102,7 +102,7 @@ func LoadConfig(configPath string) (*Config, error) {
 		// Create default config file
 		defaultConfig := Config{
 			ModelAliases:        map[string]string{},
-			ModelContextWindows: map[string]int{},
+			ModelContextWindows: map[string]map[string]int{},
 			Providers:           map[string]ProviderConfig{},
 			Settings: Settings{
 				ShowCommands:                false,

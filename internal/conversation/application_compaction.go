@@ -165,7 +165,7 @@ func (app *Application) modelContextWindowTokens() (int, bool) {
 	tools := llm.ModelContextTools{
 		Overrides: app.config.ModelContextWindows,
 	}
-	return tools.ContextWindowTokens(fmt.Sprintf("%s/%s", provider, model))
+	return tools.ContextWindowTokens(provider, model)
 }
 
 func (app *Application) summarizeConversation(input string) (string, error) {

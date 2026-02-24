@@ -32,8 +32,10 @@ description = "Choose the logging level"
 required = true
 options = ["debug", "info", "warn", "error"]
 
-# Example global config fragment (for reference)
-[model_context_windows]
-# Map provider/model to context window tokens for token-aware compaction
-openai/gpt-4o-mini = 128000
-groq/llama3-70b-8192 = 8192
+# Example global config fragment (for reference).
+# Use nested tables — TOML bare keys disallow '/' in provider/model strings.
+[model_context_windows.openai]
+"gpt-4o-mini" = 128000
+
+[model_context_windows.groq]
+"llama3-70b-8192" = 8192

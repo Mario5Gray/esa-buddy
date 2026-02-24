@@ -1,4 +1,4 @@
-.PHONY: test test-verbose build clean help
+.PHONY: test test-verbose build clean install help
 
 test:
 	CGO_ENABLED=0 go test ./...
@@ -12,6 +12,10 @@ build:
 clean:
 	rm -f esa
 
+install: build
+	mkdir -p ~/.local/bin
+	cp esa ~/.local/bin/esa
+
 help:
 	@echo "Usage: make [target]"
 	@echo ""
@@ -19,5 +23,6 @@ help:
 	@echo "  build         Build the esa binary"
 	@echo "  test          Run tests"
 	@echo "  test-verbose  Run tests with verbose output"
+	@echo "  install       Build and install esa to ~/.local/bin"
 	@echo "  clean         Remove built binary"
 	@echo "  help          Show this help message"
