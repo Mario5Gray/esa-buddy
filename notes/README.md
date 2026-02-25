@@ -40,6 +40,17 @@ Explainers and tutorials should include:
 - Visual aids when needed
 - Pitfalls or caveats
 
+## Optional Tree-sitter Rendering
+
+If tree-sitter is installed, you can render `scm` code blocks into live results:
+
+```bash
+scripts/render_notes.py notes/Telemetry-Scope.md --in-place
+```
+
+The renderer inserts a result block under each `scm` query, or a note if the
+binary is unavailable.
+
 ## Feedback and Iteration
 
 The current notes are strong in narrative voice and clarity, but could improve

@@ -251,6 +251,10 @@ esa --show-history 3
 esa --show-history my-project        # View by custom ID
 esa --show-history 1 --output json
 
+# Inspect full conversation tape (epoch to head)
+esa --inspect 1
+esa --inspect 1 --inspect-format json
+
 # Show last output of a previous interaction
 esa --show-output 1
 esa --show-output my-project        # View output by custom ID
@@ -463,6 +467,8 @@ See the [`examples/`](examples/) directory for more agent configurations.
 --show-tool-calls        # Show LLM tool call requests and responses
 --hide-progress          # Disable progress indicators
 --output <format>        # Output format for --show-history: text/markdown/json
+--inspect <index>        # Inspect conversation tape (epoch to head)
+--inspect-format <fmt>   # Output format for --inspect: text/json
 
 # Information commands
 --list-agents            # Show all available agents
@@ -491,6 +497,8 @@ esa --show-history 1
 esa --show-history 1 --output json
 esa --show-output 1
 esa --show-output 1 --pretty   # Pretty print markdown output
+esa --inspect 1
+esa --inspect 1 --inspect-format json
 
 # Conversation flow
 esa --continue "tell me more about that"

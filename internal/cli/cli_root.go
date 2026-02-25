@@ -92,6 +92,20 @@ func CreateRootCommand() *cobra.Command {
 				return nil
 			}
 
+			if opts.Inspect {
+				if len(args) == 0 {
+					return fmt.Errorf("history index must be provided as argument: esa --inspect <index>")
+				}
+				if opts.InspectFormat == "" {
+					opts.InspectFormat = "text"
+				}
+				if !slices.Contains([]string{"text", "json"}, opts.InspectFormat) {
+					return fmt.Errorf("invalid inspect format: %s. Must be one of: text, json", opts.InspectFormat)
+				}
+				handleInspect(args[0], opts.InspectFormat)
+				return nil
+			}
+
 			if opts.ShowStats {
 				handleShowStats(opts.ShowAll)
 				return nil
@@ -155,6 +169,8 @@ func CreateRootCommand() *cobra.Command {
 	rootCmd.Flags().BoolVar(&opts.ShowHistory, "show-history", false, "Show conversation history (requires history index as argument)")
 	rootCmd.Flags().BoolVar(&opts.ShowOutput, "show-output", false, "Show just the output from a history entry (requires history index as argument)")
 	rootCmd.Flags().BoolVar(&opts.ShowStats, "show-stats", false, "Show usage statistics based on conversation history")
+	rootCmd.Flags().BoolVar(&opts.Inspect, "inspect", false, "Inspect conversation tape from epoch to head (requires history index as argument)")
+	rootCmd.Flags().StringVar(&opts.InspectFormat, "inspect-format", "text", "Output format for --inspect (text, json)")
 	rootCmd.Flags().BoolVar(&opts.ShowAll, "all", false, "Show all items when used with --list-history or --show-stats")
 
 	// Make history-index required when show-history is used

@@ -25,6 +25,8 @@ type CLIOptions struct {
 	ShowOutput     bool   // Flag for showing just output from history
 	ShowStats      bool   // Flag for showing usage statistics
 	ShowAll        bool   // Flag for showing both stats and history
+	Inspect        bool   // Flag for inspecting conversation tape
+	InspectFormat  string // Output format for inspect (text, json)
 	SystemPrompt   string // System prompt override from CLI
 	Pretty         bool   // Pretty print markdown output using glow
 	Think          bool   // Enable model thinking/chain-of-thought

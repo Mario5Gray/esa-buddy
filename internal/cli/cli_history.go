@@ -11,6 +11,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/meain/esa/internal/conversation"
 	hist "github.com/meain/esa/internal/conversation/history"
+	"github.com/meain/esa/internal/inspect"
 	"github.com/meain/esa/internal/utils"
 	"github.com/sashabaranov/go-openai"
 )
@@ -149,6 +150,25 @@ func handleShowOutput(conversationID string, pretty bool) {
 	}
 
 	printOutput(history, pretty)
+}
+
+func handleInspect(conversationID string, format string) {
+	historyFilePath, history, ok := readHistoryFile(conversationID)
+	if !ok {
+		return
+	}
+
+	tape := inspect.BuildTape(historyFilePath, history)
+	var renderer inspect.Renderer = inspect.TextRenderer{}
+	if format == "json" {
+		renderer = inspect.JSONRenderer{}
+	}
+	out, err := renderer.Render(tape)
+	if err != nil {
+		printError(fmt.Sprintf("Error rendering inspection: %v", err))
+		return
+	}
+	fmt.Println(out)
 }
 
 // handleShowStats analyzes history files and displays usage statistics
