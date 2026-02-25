@@ -52,8 +52,8 @@ const (
 type Application struct {
 	agent                        agent.Agent
 	agentPath                    string
-	client                       *openai.Client
-	clients                      map[string]*openai.Client
+	client                       llm.Client
+	clients                      map[string]llm.Client
 	debug                        bool
 	historyFile                  string
 	messages                     []openai.ChatCompletionMessage
@@ -150,12 +150,12 @@ func (app *Application) resolveModelString(purpose string, toolName string) stri
 	return llm.DefaultModel
 }
 
-func (app *Application) clientForModel(modelStr string) (*openai.Client, error) {
+func (app *Application) clientForModel(modelStr string) (llm.Client, error) {
 	if modelStr == "" {
 		modelStr = app.resolveModelString("chat", "")
 	}
 	if app.clients == nil {
-		app.clients = make(map[string]*openai.Client)
+		app.clients = make(map[string]llm.Client)
 	}
 	if client, ok := app.clients[modelStr]; ok {
 		return client, nil
@@ -635,7 +635,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		agent:                       agentCfg,
 		agentPath:                   opts.AgentPath,
 		client:                      client,
-		clients:                     map[string]*openai.Client{opts.Model: client},
+		clients:                     map[string]llm.Client{opts.Model: client},
 		historyFile:                 historyFile,
 		messages:                    messages,
 		messageMeta:                 nil,

@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -9,6 +10,13 @@ import (
 	"github.com/meain/esa/internal/config"
 	"github.com/sashabaranov/go-openai"
 )
+
+// Client is the minimal interface the conversation layer needs from an LLM
+// backend. *openai.Client satisfies it; tests can provide a fake.
+type Client interface {
+	CreateChatCompletion(context.Context, openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
+	CreateChatCompletionStream(context.Context, openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
+}
 
 func SetupOpenAIClient(modelStr string, agentCfg agent.Agent, cfg *config.Config) (*openai.Client, error) {
 	_, _, info := ParseModel(modelStr, agentCfg, cfg)

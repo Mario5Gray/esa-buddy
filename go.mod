@@ -6,6 +6,7 @@ toolchain go1.24.3
 
 require (
 	github.com/BurntSushi/toml v1.4.0
+	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/bmatcuk/doublestar/v4 v4.6.1
 	github.com/charmbracelet/glamour v0.9.1
@@ -16,12 +17,13 @@ require (
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/sashabaranov/go-openai v1.37.0
 	github.com/spf13/cobra v1.9.1
+	github.com/yuin/goldmark v1.7.8
+	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	golang.org/x/term v0.32.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
-	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
@@ -42,7 +44,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	github.com/yuin/goldmark v1.7.8 // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
 	golang.org/x/exp v0.0.0-20240604190554-fc45aab8b7f8 // indirect
 	golang.org/x/net v0.40.0 // indirect

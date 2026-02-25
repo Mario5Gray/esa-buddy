@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telemetry-Scope</title>
+  <style>
+    body { font-family: sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; }
+    pre { border-radius: 4px; padding: 1em; overflow-x: auto; }
+    code { font-size: 0.9em; }
+    /* Background */ .bg { color: #f8f8f2; background-color: #272822; }
+/* PreWrapper */ .chroma { color: #f8f8f2; background-color: #272822; }
+/* Error */ .chroma .err { color: #960050; background-color: #1e0010 }
+/* LineLink */ .chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+/* LineTableTD */ .chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+/* LineTable */ .chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+/* LineHighlight */ .chroma .hl { background-color: #3c3d38 }
+/* LineNumbersTable */ .chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+/* LineNumbers */ .chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+/* Line */ .chroma .line { display: flex; }
+/* Keyword */ .chroma .k { color: #66d9ef }
+/* KeywordConstant */ .chroma .kc { color: #66d9ef }
+/* KeywordDeclaration */ .chroma .kd { color: #66d9ef }
+/* KeywordNamespace */ .chroma .kn { color: #f92672 }
+/* KeywordPseudo */ .chroma .kp { color: #66d9ef }
+/* KeywordReserved */ .chroma .kr { color: #66d9ef }
+/* KeywordType */ .chroma .kt { color: #66d9ef }
+/* NameAttribute */ .chroma .na { color: #a6e22e }
+/* NameClass */ .chroma .nc { color: #a6e22e }
+/* NameConstant */ .chroma .no { color: #66d9ef }
+/* NameDecorator */ .chroma .nd { color: #a6e22e }
+/* NameException */ .chroma .ne { color: #a6e22e }
+/* NameFunction */ .chroma .nf { color: #a6e22e }
+/* NameOther */ .chroma .nx { color: #a6e22e }
+/* NameTag */ .chroma .nt { color: #f92672 }
+/* Literal */ .chroma .l { color: #ae81ff }
+/* LiteralDate */ .chroma .ld { color: #e6db74 }
+/* LiteralString */ .chroma .s { color: #e6db74 }
+/* LiteralStringAffix */ .chroma .sa { color: #e6db74 }
+/* LiteralStringBacktick */ .chroma .sb { color: #e6db74 }
+/* LiteralStringChar */ .chroma .sc { color: #e6db74 }
+/* LiteralStringDelimiter */ .chroma .dl { color: #e6db74 }
+/* LiteralStringDoc */ .chroma .sd { color: #e6db74 }
+/* LiteralStringDouble */ .chroma .s2 { color: #e6db74 }
+/* LiteralStringEscape */ .chroma .se { color: #ae81ff }
+/* LiteralStringHeredoc */ .chroma .sh { color: #e6db74 }
+/* LiteralStringInterpol */ .chroma .si { color: #e6db74 }
+/* LiteralStringOther */ .chroma .sx { color: #e6db74 }
+/* LiteralStringRegex */ .chroma .sr { color: #e6db74 }
+/* LiteralStringSingle */ .chroma .s1 { color: #e6db74 }
+/* LiteralStringSymbol */ .chroma .ss { color: #e6db74 }
+/* LiteralNumber */ .chroma .m { color: #ae81ff }
+/* LiteralNumberBin */ .chroma .mb { color: #ae81ff }
+/* LiteralNumberFloat */ .chroma .mf { color: #ae81ff }
+/* LiteralNumberHex */ .chroma .mh { color: #ae81ff }
+/* LiteralNumberInteger */ .chroma .mi { color: #ae81ff }
+/* LiteralNumberIntegerLong */ .chroma .il { color: #ae81ff }
+/* LiteralNumberOct */ .chroma .mo { color: #ae81ff }
+/* Operator */ .chroma .o { color: #f92672 }
+/* OperatorWord */ .chroma .ow { color: #f92672 }
+/* Comment */ .chroma .c { color: #75715e }
+/* CommentHashbang */ .chroma .ch { color: #75715e }
+/* CommentMultiline */ .chroma .cm { color: #75715e }
+/* CommentSingle */ .chroma .c1 { color: #75715e }
+/* CommentSpecial */ .chroma .cs { color: #75715e }
+/* CommentPreproc */ .chroma .cp { color: #75715e }
+/* CommentPreprocFile */ .chroma .cpf { color: #75715e }
+/* GenericDeleted */ .chroma .gd { color: #f92672 }
+/* GenericEmph */ .chroma .ge { font-style: italic }
+/* GenericInserted */ .chroma .gi { color: #a6e22e }
+/* GenericStrong */ .chroma .gs { font-weight: bold }
+/* GenericSubheading */ .chroma .gu { color: #75715e }
+
+  </style>
+</head>
+<body>
+<h1 id="telemetry-scope-and-coverage">Telemetry Scope and Coverage</h1>
+<p>This note documents where telemetry is emitted, what each signal is good for,
+and which areas are not yet abstracted behind the telemetry interface.</p>
+<h2 id="emitted-sites">Emitted Sites</h2>
+<ol>
+<li>Turn lifecycle</li>
+</ol>
+<ul>
+<li><code>turn.start</code> / <code>turn.complete</code></li>
+<li>Emitted at the beginning and end of each assistant turn.</li>
+<li>Useful for:
+<ul>
+<li>Measuring per-turn latency when combined with timestamps.</li>
+<li>Understanding conversation position (turn index, message count).</li>
+<li>Correlating model/provider usage across turns.</li>
+</ul>
+</li>
+<li>Tree-sitter query (Go) to find call sites:
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">_</span><span class="p">)</span> <span class="nv">@recv</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@method</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@method</span> <span class="s">&#34;TurnStarted&#34;</span><span class="p">))</span>
+</span></span></code></pre><pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">_</span><span class="p">)</span> <span class="nv">@recv</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@method</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@method</span> <span class="s">&#34;TurnCompleted&#34;</span><span class="p">))</span>
+</span></span></code></pre></li>
+</ul>
+<ol start="2">
+<li>Tool execution</li>
+</ol>
+<ul>
+<li><code>tool.start</code> / <code>tool.complete</code></li>
+<li>Emitted for function tools invoked by the assistant.</li>
+<li>Useful for:
+<ul>
+<li>Tool usage frequency and performance.</li>
+<li>Approvals and command volume (via args size).</li>
+<li>Building dashboards of tool hot paths.</li>
+</ul>
+</li>
+<li>Tree-sitter query (Go) to find call sites:
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">_</span><span class="p">)</span> <span class="nv">@recv</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@method</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@method</span> <span class="s">&#34;ToolCallStarted&#34;</span><span class="p">))</span>
+</span></span></code></pre><pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">_</span><span class="p">)</span> <span class="nv">@recv</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@method</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@method</span> <span class="s">&#34;ToolCallCompleted&#34;</span><span class="p">))</span>
+</span></span></code></pre></li>
+</ul>
+<ol start="3">
+<li>Compaction</li>
+</ol>
+<ul>
+<li><code>compaction</code></li>
+<li>Emitted after a compaction event.</li>
+<li>Useful for:
+<ul>
+<li>Observing compaction triggers and thresholds.</li>
+<li>Monitoring token/char/message pressure over time.</li>
+<li>Validating compaction effectiveness per model.</li>
+</ul>
+</li>
+<li>Tree-sitter query (Go) to find call sites:
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">_</span><span class="p">)</span> <span class="nv">@recv</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@method</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@method</span> <span class="s">&#34;Compaction&#34;</span><span class="p">))</span>
+</span></span></code></pre></li>
+</ul>
+<ol start="4">
+<li>Retry</li>
+</ol>
+<ul>
+<li><code>retry</code></li>
+<li>Emitted on rate limit retry.</li>
+<li>Useful for:
+<ul>
+<li>Detecting provider instability or throttling.</li>
+<li>Tuning retry/backoff strategies.</li>
+</ul>
+</li>
+<li>Tree-sitter query (Go) to find call sites:
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">_</span><span class="p">)</span> <span class="nv">@recv</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@method</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@method</span> <span class="s">&#34;Retry&#34;</span><span class="p">))</span>
+</span></span></code></pre></li>
+</ul>
+<ol start="5">
+<li>Errors</li>
+</ol>
+<ul>
+<li><code>error</code></li>
+<li>Emitted for chat completion failures, stream errors, tool/MCP errors.</li>
+<li>Useful for:
+<ul>
+<li>Alerting and root-cause analysis.</li>
+<li>Error-rate tracking by stage.</li>
+</ul>
+</li>
+<li>Tree-sitter query (Go) to find call sites:
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">_</span><span class="p">)</span> <span class="nv">@recv</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@method</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@method</span> <span class="s">&#34;Error&#34;</span><span class="p">))</span>
+</span></span></code></pre></li>
+</ul>
+<h2 id="what-data-these-enable">What Data These Enable</h2>
+<ul>
+<li>Turn-level traces (duration, model/provider, context size)</li>
+<li>Tool usage profiling (top tools, latency patterns, approval rates)</li>
+<li>Compaction health (token thresholds reached, impact on context)</li>
+<li>Provider reliability (retry/error rates)</li>
+</ul>
+<h2 id="not-yet-abstracted-pre-pipeline--legacy">Not Yet Abstracted (Pre-Pipeline / Legacy)</h2>
+<p>The following sites still use ad-hoc logic or are not yet instrumented:</p>
+<ol>
+<li>Pre-pipeline message ingestion</li>
+</ol>
+<ul>
+<li>Some message creation paths still bypass a centralized telemetry context.</li>
+<li>Example: direct <code>message.New(...).Build()</code> calls before a unified “turn envelope”.</li>
+</ul>
+<ol start="2">
+<li>System prompt resolution</li>
+</ol>
+<ul>
+<li>The system prompt assembly and final prompt contents are not yet emitted as
+telemetry events or trace attributes.</li>
+</ul>
+<ol start="3">
+<li>Tool gating decisions</li>
+</ol>
+<ul>
+<li>Gate allow/deny outcomes are not yet reported as telemetry events.</li>
+</ul>
+<ol start="4">
+<li>MCP server lifecycle</li>
+</ol>
+<ul>
+<li>MCP start/stop and tool discovery are not instrumented.</li>
+</ul>
+<ol start="5">
+<li>Artifact/cache operations</li>
+</ol>
+<ul>
+<li>Cache and history file operations remain uninstrumented.</li>
+</ul>
+<h2 id="tree-sitter-queries-for-gaps">Tree-sitter Queries for Gaps</h2>
+<p>These queries help locate likely pre-pipeline sites that should be routed
+through telemetry.</p>
+<ol>
+<li>Direct <code>message.New(...).Build()</code> (pre-pipeline message assembly):</li>
+</ol>
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">      <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">        <span class="nv">operand:</span> <span class="p">(</span><span class="nf">identifier</span><span class="p">)</span> <span class="nv">@pkg</span>
+</span></span><span class="line"><span class="cl">        <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@ctor</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@build</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@pkg</span> <span class="s">&#34;message&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@ctor</span> <span class="s">&#34;New&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@build</span> <span class="s">&#34;Build&#34;</span><span class="p">))</span>
+</span></span></code></pre><ol start="2">
+<li><code>log.Fatalf</code>/<code>log.Printf</code> ad-hoc logging:</li>
+</ol>
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="p">(</span><span class="nf">call_expression</span>
+</span></span><span class="line"><span class="cl">  <span class="nv">function:</span> <span class="p">(</span><span class="nf">selector_expression</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">operand:</span> <span class="p">(</span><span class="nf">identifier</span><span class="p">)</span> <span class="nv">@pkg</span>
+</span></span><span class="line"><span class="cl">    <span class="nv">field:</span> <span class="p">(</span><span class="nf">field_identifier</span><span class="p">)</span> <span class="nv">@fn</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">eq?</span> <span class="nv">@pkg</span> <span class="s">&#34;log&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="o">#</span><span class="nv">match?</span> <span class="nv">@fn</span> <span class="s">&#34;Fatalf|Printf|Print&#34;</span><span class="p">))</span>
+</span></span></code></pre><h2 id="next-steps-suggested">Next Steps (Suggested)</h2>
+<ul>
+<li>Add telemetry to prompt assembly, tool gating, and MCP lifecycle.</li>
+<li>Add a “turn envelope” that captures the effective system prompt and context
+snapshot once per turn.</li>
+<li>Add a trace adaptor for OpenTelemetry to correlate logs with spans.</li>
+</ul>
+
+</body>
+</html>

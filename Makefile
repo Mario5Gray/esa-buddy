@@ -1,4 +1,4 @@
-.PHONY: test test-verbose build clean install help
+.PHONY: test test-verbose build clean install docs help
 
 test:
 	CGO_ENABLED=0 go test ./...
@@ -8,6 +8,9 @@ test-verbose:
 
 build:
 	CGO_ENABLED=0 go build -ldflags="-X github.com/meain/esa/internal/buildinfo.Commit=$$(git rev-parse --short HEAD)" -o esa .
+
+docs:
+	go run ./cmd/docgen docs/*.md notes/*.md
 
 clean:
 	rm -f esa
