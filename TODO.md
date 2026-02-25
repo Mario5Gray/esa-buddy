@@ -28,6 +28,8 @@
 - [x] Persist compaction metadata (message/char/token estimates) in history
 - [x] Redaction policy for summaries (pluggable policy + external analyzer adapter)
 - [x] Store summary in history metadata instead of system message
+- [ ] E2E Testing (pick 2)
+- [ ] prompt security checklist
 
 ### 5. Prompt Compaction Phase 2 (Project Overview)
 - [x] Token-aware trigger based on model context window

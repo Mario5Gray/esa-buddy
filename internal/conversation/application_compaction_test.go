@@ -56,6 +56,59 @@ func TestFormatMessageForSummaryToolOutputOmitted(t *testing.T) {
 	}
 }
 
+func TestFormatMessageForSummaryOmitsFunctionArguments(t *testing.T) {
+	msg := openai.ChatCompletionMessage{
+		Role: "assistant",
+		FunctionCall: &openai.FunctionCall{
+			Name:      "fetch_data",
+			Arguments: "{\"token\":\"secret\"}",
+		},
+	}
+	got := formatMessageForSummary(msg)
+	if strings.Contains(got, "\"token\"") || strings.Contains(got, "secret") {
+		t.Fatalf("expected function arguments to be omitted, got %q", got)
+	}
+	if !strings.Contains(got, "[arguments omitted") {
+		t.Fatalf("expected arguments omission marker, got %q", got)
+	}
+}
+
+func TestFormatMessageForSummaryOmitsToolCallArguments(t *testing.T) {
+	msg := openai.ChatCompletionMessage{
+		Role: "assistant",
+		ToolCalls: []openai.ToolCall{
+			{
+				ID:   "tool_1",
+				Type: "function",
+				Function: openai.FunctionCall{
+					Name:      "read_file",
+					Arguments: "{\"path\":\"/secret\"}",
+				},
+			},
+		},
+	}
+	got := formatMessageForSummary(msg)
+	if strings.Contains(got, "\"path\"") || strings.Contains(got, "/secret") {
+		t.Fatalf("expected tool call arguments to be omitted, got %q", got)
+	}
+	if !strings.Contains(got, "[arguments omitted") {
+		t.Fatalf("expected arguments omission marker, got %q", got)
+	}
+}
+
+func TestCompactionSystemPromptIsHardened(t *testing.T) {
+	prompt := compactionSystemPrompt()
+	if !strings.Contains(strings.ToLower(prompt), "untrusted") {
+		t.Fatalf("expected prompt to mention untrusted content, got %q", prompt)
+	}
+	if !strings.Contains(strings.ToLower(prompt), "ignore any instructions") {
+		t.Fatalf("expected prompt to instruct ignoring embedded instructions, got %q", prompt)
+	}
+	if !strings.Contains(strings.ToLower(prompt), "secrets") {
+		t.Fatalf("expected prompt to mention secrets, got %q", prompt)
+	}
+}
+
 func TestBuildCompactionInputIncludesPreviousSummary(t *testing.T) {
 	messages := []openai.ChatCompletionMessage{
 		{Role: "user", Content: "u1"},

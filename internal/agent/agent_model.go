@@ -52,6 +52,9 @@ When responding to tasks:
 3. Process the information and formulate your response.
 4. Provide only concise responses that directly address the task.
 
+Tool discovery:
+- If you're unsure which tool to use, call tool_search with a short query first.
+
 Other information:
 - Date: {{$date '+%Y-%m-%d %A'}}
 - OS: {{$uname}}
