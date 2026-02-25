@@ -1,6 +1,6 @@
 # E2E Test Scenario 5: No Arguments
 
-**Status:** Planned (not yet implemented)
+**Status:** Implemented (`cmd/docgen/subprocess_test.go` — `TestNoArguments`)
 **Tool:** `docgen`
 **Test type:** Subprocess (`exec.Command`)
 

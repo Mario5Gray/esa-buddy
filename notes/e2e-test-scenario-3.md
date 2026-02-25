@@ -1,6 +1,6 @@
 # E2E Test Scenario 3: Output Path Derivation
 
-**Status:** Planned (not yet implemented)
+**Status:** Implemented (`cmd/docgen/subprocess_test.go` — `TestOutputPathDerivation`)
 **Tool:** `docgen`
 **Test type:** Subprocess (`exec.Command`)
 
@@ -10,15 +10,15 @@ Verify that the output path mirrors the input file's directory segment under `si
 
 ## Input
 
-File: `notes/Telemetry-Scope.md` (passed as a CLI argument)
+File: `subdir/input.md` (passed as a CLI argument) — any name/directory works; these are generic placeholders.
 
-The file must exist on disk for this test. Use a temp directory as working directory to avoid polluting the real `site/` tree.
+Use a temp directory as working directory to avoid polluting the real `site/` tree.
 
 ## Steps
 
 1. Create a temp working directory (`t.TempDir()`).
-2. Create `notes/Telemetry-Scope.md` inside that temp dir with minimal markdown content.
-3. Run: `docgen notes/Telemetry-Scope.md` with the temp dir as the working directory.
+2. Create `subdir/input.md` inside that temp dir with minimal markdown content.
+3. Run: `docgen subdir/input.md` with the temp dir as the working directory.
 4. Check the filesystem.
 
 ## Assertions
@@ -26,8 +26,8 @@ The file must exist on disk for this test. Use a temp directory as working direc
 | Assertion | Expected |
 |-----------|----------|
 | Exit code | `0` |
-| Output file exists | `site/notes/Telemetry-Scope.html` (relative to temp working dir) |
-| `site/notes/` directory created | Yes (auto-created by `os.MkdirAll`) |
+| Output file exists | `site/subdir/input.html` (relative to temp working dir) |
+| `site/subdir/` directory created | Yes (auto-created by `os.MkdirAll`) |
 
 ## Notes
 

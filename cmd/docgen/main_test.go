@@ -83,6 +83,40 @@ func TestSCMBlockCountPreserved(t *testing.T) {
 	}
 }
 
+// TestPageShellStructure (scenario 7) verifies that convertFile produces a
+// complete HTML page: doctype, title matching the filename stem, an inline
+// style block containing chroma CSS, and a closing </html> tag.
+func TestPageShellStructure(t *testing.T) {
+	src := writeFixture(t, "my-document.md", "# Hello\n")
+	dst := filepath.Join(t.TempDir(), "my-document.html")
+
+	css, err := buildCSS()
+	if err != nil {
+		t.Fatalf("buildCSS: %v", err)
+	}
+	if err := convertFile(buildMarkdown(), css, src, dst); err != nil {
+		t.Fatalf("convertFile: %v", err)
+	}
+
+	out := readFile(t, dst)
+
+	checks := []struct {
+		desc string
+		want string
+	}{
+		{"doctype", "<!DOCTYPE html>"},
+		{"title", "<title>my-document</title>"},
+		{"style block", "<style>"},
+		{"chroma css", ".chroma"},
+		{"closing tag", "</html>"},
+	}
+	for _, c := range checks {
+		if !strings.Contains(out, c.want) {
+			t.Errorf("%s: expected %q in output", c.desc, c.want)
+		}
+	}
+}
+
 // writeFixture writes content to a temp file and returns its path.
 func writeFixture(t *testing.T, name, content string) string {
 	t.Helper()

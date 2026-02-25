@@ -1,6 +1,6 @@
 # E2E Test Scenario 7: Page Shell Structure
 
-**Status:** Planned (not yet implemented)
+**Status:** Implemented (`cmd/docgen/main_test.go` — `TestPageShellStructure`)
 **Tool:** `docgen`
 **Test type:** In-process (calls `convertFile` directly) or subprocess
 

@@ -1,6 +1,6 @@
 # E2E Test Scenario 6: Missing Input File
 
-**Status:** Planned (not yet implemented)
+**Status:** Implemented (`cmd/docgen/subprocess_test.go` — `TestMissingFile`, `TestMissingFileMixedInput`)
 **Tool:** `docgen`
 **Test type:** Subprocess (`exec.Command`)
 
@@ -26,8 +26,8 @@ Confirms that the tool processes the valid file (writes its output), reports the
 ## Steps (extended variant)
 
 1. Create a temp working directory.
-2. Create `docs/agents.md` inside it with minimal content.
-3. Run: `docgen docs/agents.md nonexistent/missing.md` with `cmd.Dir` = temp dir.
+2. Create `subdir/valid.md` inside it with minimal content.
+3. Run: `docgen subdir/valid.md nonexistent/missing.md` with `cmd.Dir` = temp dir.
 4. Check exit code, stderr, and filesystem.
 
 ## Assertions (basic)
@@ -43,7 +43,7 @@ Confirms that the tool processes the valid file (writes its output), reports the
 |-----------|----------|
 | Exit code | Non-zero (1) — `failed=true` from the missing file |
 | Stderr contains | `"error:"` |
-| `site/docs/agents.html` exists | Yes — valid file is still processed |
+| `site/subdir/valid.html` exists | Yes — valid file is still processed |
 
 ## Notes
 

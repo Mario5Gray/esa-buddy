@@ -5,9 +5,14 @@ import (
 	"strings"
 )
 
+// KindSecretKeywords redacts common credential-bearing key/value pairs.
+// It targets high-signal keys (api_key, token, password, authorization, bearer)
+// and replaces their values while preserving surrounding structure.
 const KindSecretKeywords = "builtin/secret-keywords"
 
 var secretKeywordPatterns = []string{
+	// JSON-like key/value pairs and key=value headers. Keep the key prefix,
+	// redact only the value to preserve context for summaries.
 	`(?i)(\"?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|authorization|bearer)\"?\s*:\s*)(\"[^\"]*\"|'[^']*'|[^,\s}]+)`,
 	`(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|authorization|bearer)\s*[:=]\s*)([^\r\n]+)`,
 }

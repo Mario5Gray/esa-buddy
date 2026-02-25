@@ -361,6 +361,10 @@ show_commands = true                     # Show executed commands
 default_model = "openai/gpt-4o-mini"    # Default model
 compaction_token_threshold_pct = 75     # Trigger compaction at % of context window
 
+[settings.compaction_redaction]
+kind = "builtin/secret-keywords"        # Default if unset; use "none" to disable
+fail_open = false                       # If true, allow unredacted text on errors
+
 [model_aliases]
 # Create shortcuts for frequently used models
 4o = "openai/gpt-4o"
