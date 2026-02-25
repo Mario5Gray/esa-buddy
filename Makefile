@@ -7,7 +7,7 @@ test-verbose:
 	CGO_ENABLED=0 go test -v ./...
 
 build:
-	CGO_ENABLED=0 go build -ldflags="-X github.com/meain/esa/internal/buildinfo.Commit=$$(git rev-parse --short HEAD)" -o esa .
+	CGO_ENABLED=0 go build -ldflags="-X github.com/meain/esa/internal/buildinfo.Commit=$$(git rev-parse --short HEAD) -X github.com/meain/esa/internal/buildinfo.Date=$$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o esa .
 
 docs:
 	go run ./cmd/docgen docs/*.md notes/*.md

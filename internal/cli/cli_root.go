@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/meain/esa/internal/agent"
+	"github.com/meain/esa/internal/buildinfo"
 	"github.com/meain/esa/internal/conversation"
 	"github.com/meain/esa/internal/options"
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ func CreateRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:          "esa [text]",
 		SilenceUsage: true,
+		Version:      fmt.Sprintf("%s (built %s)", buildinfo.Commit, buildinfo.Date),
 		Short:        "Personalized micro agents",
 		Long: "Esa is a command-line tool for interacting with personalized micro agents" +
 			" that can execute tasks, answer questions, and assist with various functions.",

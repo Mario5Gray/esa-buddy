@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -100,6 +101,7 @@ type Application struct {
 	// by ingest() before any message enters app.messages. This is the Reference
 	// Monitor enforcement point — every write to the LLM context passes here.
 	transforms []message.Transform
+	out        io.Writer // receives streamed content; defaults to os.Stdout
 }
 
 // parseModel parses model string in format "provider/model" and
@@ -359,8 +361,8 @@ func normalizeRetrySettings(settings config.Settings) (uint, time.Duration, time
 }
 
 // createChatCompletionWithRetry creates a chat completion stream with retry logic for rate limiting
-func (app *Application) createChatCompletionWithRetry(ctx context.Context, tools []openai.Tool) (*openai.ChatCompletionStream, error) {
-	var stream *openai.ChatCompletionStream
+func (app *Application) createChatCompletionWithRetry(ctx context.Context, tools []openai.Tool) (llm.Stream, error) {
+	var stream llm.Stream
 
 	if err := app.compactMessagesIfNeeded(); err != nil {
 		app.debugPrint("Compaction", fmt.Sprintf("Compaction skipped: %v", err))
@@ -636,6 +638,7 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 		agentPath:                   opts.AgentPath,
 		client:                      client,
 		clients:                     map[string]llm.Client{opts.Model: client},
+		out:                         os.Stdout,
 		historyFile:                 historyFile,
 		messages:                    messages,
 		messageMeta:                 nil,

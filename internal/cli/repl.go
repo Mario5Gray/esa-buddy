@@ -15,6 +15,7 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/fatih/color"
 	"github.com/meain/esa/internal/agent"
+	"github.com/meain/esa/internal/buildinfo"
 	"github.com/meain/esa/internal/conversation"
 	"github.com/meain/esa/internal/options"
 	"github.com/meain/esa/internal/utils"
@@ -158,7 +159,7 @@ func runReplMode(opts *options.CLIOptions, args []string) error {
 		"%s %s\n\n",
 		theme.Banner.Render("[REPL]"),
 		strings.Join([]string{
-			"Starting interactive mode",
+			fmt.Sprintf("Starting interactive mode (%s built %s)", buildinfo.Commit, buildinfo.Date),
 			"- '/exit' or '/quit' to end the session",
 			"- '/help' for available commands",
 			"- Use /editor command for multi line input",

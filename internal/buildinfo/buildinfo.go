@@ -1,5 +1,7 @@
 package buildinfo
 
-// Commit is the git commit hash used to build the binary.
-// It can be overridden at build time via ldflags.
+// Commit is the git commit hash, injected at build time via ldflags.
 var Commit = "dev"
+
+// Date is the UTC build timestamp (RFC3339), injected at build time via ldflags.
+var Date = "unknown"

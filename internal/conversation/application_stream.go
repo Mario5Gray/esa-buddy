@@ -6,8 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/meain/esa/internal/llm"
 	"github.com/sashabaranov/go-openai"
 )
+
 
 // filterThinkTags strips <think>...</think> blocks from streamed content.
 // It handles tags split across chunk boundaries using a simple state machine.
@@ -74,7 +76,7 @@ func filterThinkTags(chunk string, inThink *bool, buf *strings.Builder) string {
 	return out.String()
 }
 
-func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream) (openai.ChatCompletionMessage, error) {
+func (app *Application) handleStreamResponse(stream llm.Stream) (openai.ChatCompletionMessage, error) {
 	defer stream.Close()
 
 	var assistantMsg openai.ChatCompletionMessage
@@ -128,7 +130,7 @@ func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream
 				if content != "" {
 					hasContent = true
 					if !app.prettyOutput {
-						fmt.Print(content)
+						fmt.Fprint(app.out, content)
 					}
 					fullContent.WriteString(content)
 				}
@@ -142,7 +144,7 @@ func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream
 		if remaining != "" {
 			hasContent = true
 			if !app.prettyOutput {
-				fmt.Print(remaining)
+				fmt.Fprint(app.out, remaining)
 			}
 			fullContent.WriteString(remaining)
 		}
@@ -154,7 +156,7 @@ func (app *Application) handleStreamResponse(stream *openai.ChatCompletionStream
 			// streming manner (charmbracelet/glow/issues/601)
 			PrintPrettyOutput(fullContent.String())
 		} else {
-			fmt.Println()
+			fmt.Fprintln(app.out)
 		}
 	}
 

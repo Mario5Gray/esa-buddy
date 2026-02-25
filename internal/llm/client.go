@@ -11,14 +11,34 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+// Stream is the minimal interface the conversation layer needs to consume a
+// streaming chat response. *openai.ChatCompletionStream satisfies it.
+type Stream interface {
+	Recv() (openai.ChatCompletionStreamResponse, error)
+	Close() error
+}
+
 // Client is the minimal interface the conversation layer needs from an LLM
 // backend. *openai.Client satisfies it; tests can provide a fake.
 type Client interface {
 	CreateChatCompletion(context.Context, openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
-	CreateChatCompletionStream(context.Context, openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
+	CreateChatCompletionStream(context.Context, openai.ChatCompletionRequest) (Stream, error)
 }
 
-func SetupOpenAIClient(modelStr string, agentCfg agent.Agent, cfg *config.Config) (*openai.Client, error) {
+// openAIClientAdapter wraps *openai.Client to satisfy llm.Client.
+// The only gap is CreateChatCompletionStream: the real client returns the
+// concrete *openai.ChatCompletionStream; the adapter narrows it to llm.Stream.
+type openAIClientAdapter struct{ c *openai.Client }
+
+func (a *openAIClientAdapter) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	return a.c.CreateChatCompletion(ctx, req)
+}
+
+func (a *openAIClientAdapter) CreateChatCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (Stream, error) {
+	return a.c.CreateChatCompletionStream(ctx, req)
+}
+
+func SetupOpenAIClient(modelStr string, agentCfg agent.Agent, cfg *config.Config) (Client, error) {
 	_, _, info := ParseModel(modelStr, agentCfg, cfg)
 
 	configuredAPIKey := os.Getenv(info.APIKeyEnvar)
@@ -41,9 +61,7 @@ func SetupOpenAIClient(modelStr string, agentCfg agent.Agent, cfg *config.Config
 		llmConfig.HTTPClient = httpClient
 	}
 
-	client := openai.NewClientWithConfig(llmConfig)
-
-	return client, nil
+	return &openAIClientAdapter{c: openai.NewClientWithConfig(llmConfig)}, nil
 }
 
 type transportWithCustomHeaders struct {
