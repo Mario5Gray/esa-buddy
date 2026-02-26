@@ -31,7 +31,15 @@
 - [ ] E2E Testing (pick 2)
 - [ ] prompt security checklist
 
-### 5. Prompt Compaction Phase 2 (Project Overview)
+### 5. Instrumentation
+- [ ] Conversation position introspection (turn index, tool call index, last tool)
+- [ ] Expose effective system prompt (merged/processed prompt chain)
+- [ ] Expose effective context snapshot (system + summary + recent)
+- [ ] Trace-friendly event stream for tool calls, compaction, and retries
+- [ ] OpenTelemetry integration hooks (spans + attributes)
+- [ ] Grafana-friendly logging and metrics emitters
+
+### 6. Prompt Compaction Phase 2 (Project Overview)
 - [x] Token-aware trigger based on model context window
 - [ ] Virtualize large tool outputs into artifacts (cache files)
 - [ ] Artifact registry with read/search retrieval tools
@@ -40,14 +48,6 @@
 - [ ] Dedicated summary model + structured summary schema
 - [ ] Redaction/PII policy and opt-out modes
 - [ ] Compaction metrics and history metadata
-
-### 6. Instrumentation
-- [ ] Conversation position introspection (turn index, tool call index, last tool)
-- [ ] Expose effective system prompt (merged/processed prompt chain)
-- [ ] Expose effective context snapshot (system + summary + recent)
-- [ ] Trace-friendly event stream for tool calls, compaction, and retries
-- [ ] OpenTelemetry integration hooks (spans + attributes)
-- [ ] Grafana-friendly logging and metrics emitters
 
 ## Phase 1.5: Redaction & Analysis
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	retry "github.com/avast/retry-go/v4"
+	"github.com/gocraft/work"
 	"github.com/google/uuid"
 	"github.com/meain/esa/internal/agent"
 	"github.com/meain/esa/internal/buildinfo"
@@ -448,7 +449,32 @@ func NewApplication(opts *options.CLIOptions) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	telemetrySink := telemetry.NewSlogAdapter(logger)
+	telemetrySink := telemetry.Telemetry(telemetry.NewSlogAdapter(logger))
+	telemetrySinks := []telemetry.Telemetry{telemetrySink}
+
+	if config.TelemetryWork.Enabled {
+		namespace := strings.TrimSpace(config.TelemetryWork.Namespace)
+		if namespace == "" {
+			namespace = "esa"
+		}
+		redisURL := strings.TrimSpace(config.TelemetryWork.RedisURL)
+		if redisURL == "" {
+			redisURL = "redis://localhost:6379"
+		}
+		pool := telemetry.NewRedisPool(redisURL)
+		enqueuer := work.NewEnqueuer(namespace, pool)
+		workTelemetry := telemetry.NewWorkTelemetry(enqueuer, telemetry.WorkQueueOptions{
+			Async:        config.TelemetryWork.Async,
+			BufferSize:   config.TelemetryWork.BufferSize,
+			BlockOnFull:  config.TelemetryWork.BlockOnFull,
+			EnqueueDelay: time.Duration(config.TelemetryWork.EnqueueDelayMs) * time.Millisecond,
+		})
+		telemetrySinks = append(telemetrySinks, workTelemetry)
+	}
+
+	if len(telemetrySinks) > 1 {
+		telemetrySink = telemetry.Fanout{Sinks: telemetrySinks}
+	}
 
 	cacheDir, err := utils.SetupCacheDir()
 	if err != nil {

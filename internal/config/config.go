@@ -51,6 +51,7 @@ type Config struct {
 	Settings            Settings                  `toml:"settings"`
 	ModelStrategy       ModelStrategy             `toml:"model_strategy"`
 	Logging             LoggingConfig             `toml:"logging"`
+	TelemetryWork       TelemetryWorkConfig       `toml:"telemetry_work"`
 }
 
 type LoggingConfig struct {
@@ -62,6 +63,16 @@ type LoggingConfig struct {
 	MaxAgeDays int    `toml:"max_age_days"`
 	MaxSizeMB  int    `toml:"max_size_mb"`
 	MaxBackups int    `toml:"max_backups"`
+}
+
+type TelemetryWorkConfig struct {
+	Enabled        bool   `toml:"enabled"`
+	RedisURL       string `toml:"redis_url"`
+	Namespace      string `toml:"namespace"`
+	Async          bool   `toml:"async"`
+	BufferSize     int    `toml:"buffer_size"`
+	BlockOnFull    bool   `toml:"block_on_full"`
+	EnqueueDelayMs int    `toml:"enqueue_delay_ms"`
 }
 
 // ModelStrategy defines optional model selection by purpose/tool.
@@ -130,6 +141,15 @@ func LoadConfig(configPath string) (*Config, error) {
 				MaxAgeDays: 30,
 				MaxSizeMB:  50,
 				MaxBackups: 0,
+			},
+			TelemetryWork: TelemetryWorkConfig{
+				Enabled:        true,
+				RedisURL:       "redis://localhost:6379",
+				Namespace:      "esa",
+				Async:          true,
+				BufferSize:     256,
+				BlockOnFull:    false,
+				EnqueueDelayMs: 0,
 			},
 		}
 		file, err := os.Create(configPath)
